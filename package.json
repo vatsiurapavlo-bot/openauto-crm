@@ -1,0 +1,37 @@
+{
+  "name": "openauto-crm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAuto CRM — zakup, import, serwis i sprzedaż samochodów używanych",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node dist/server/start.js",
+    "dev": "node scripts/build.mjs --watch & tsx watch src/server/main.ts",
+    "migrate": "tsx src/server/cli/migrate.ts",
+    "setup": "tsx src/server/cli/setup.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test --test-concurrency=1 'test/**/*.test.ts'",
+    "test:unit": "node --import tsx --test 'test/unit/*.test.ts'",
+    "test:e2e": "node --import tsx --test 'test/e2e/*.test.ts'"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.56.0",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3"
+  }
+}

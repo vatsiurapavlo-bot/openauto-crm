@@ -1,0 +1,12 @@
+node_modules
+dist/
+.env
+*.dump
+test-results/
+# sekrety i kopie — nigdy w repozytorium
+.env.*
+!.env.example
+*.oabak
+*.pem
+*.key
+*.p12

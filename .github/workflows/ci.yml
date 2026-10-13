@@ -1,0 +1,66 @@
+# Kontrola każdej zmiany przed publikacją.
+# Railway („Wait for CI”) wdraża gałąź main dopiero, gdy ten workflow zakończy się sukcesem.
+name: Testy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-retries 20
+    env:
+      TEST_ADMIN_DATABASE_URL: postgres://postgres:ci-only-password@127.0.0.1:5432/postgres
+      DB_DRIVER: pg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalacja zależności
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else echo "NEW_LOCKFILE=1" >> "$GITHUB_ENV"; npm install; fi
+
+      - name: Narzędzia PostgreSQL (pg_dump / pg_restore do testu kopii)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          pg_dump --version
+
+      - name: Przeglądarka do testów interfejsu
+        run: npx playwright install --with-deps chromium
+
+      - name: Budowanie
+        run: npm run build
+
+      - name: Sprawdzenie typów
+        run: npm run typecheck
+
+      - name: Testy (jednostkowe, baza danych, API, kopie, przeglądarka)
+        run: npm test
+
+      # Plik blokady zależności — do zapisania w repozytorium (powtarzalne instalacje)
+      - name: Zapis package-lock.json
+        if: env.NEW_LOCKFILE == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
+          retention-days: 30

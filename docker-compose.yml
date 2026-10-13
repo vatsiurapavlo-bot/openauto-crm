@@ -1,0 +1,63 @@
+# Alternatywa dla Railway: własny serwer z Dockerem (instrukcja główna: docs/RAILWAY.md)
+# OpenAuto CRM — uruchomienie produkcyjne:
+#   cp .env.example .env   (uzupełnij hasła i domenę)
+#   docker compose --profile https up -d --build
+#   docker compose run --rm app node dist/server/setup.js   (pierwszy właściciel)
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openauto
+      POSTGRES_USER: openauto_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?ustaw DB_OWNER_PASSWORD w .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openauto_owner -d openauto']
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://openauto_app:${DB_APP_PASSWORD}@db:5432/openauto
+      MIGRATION_DATABASE_URL: postgres://openauto_owner:${DB_OWNER_PASSWORD}@db:5432/openauto
+      APP_DB_USER: openauto_app
+      APP_DB_PASSWORD: ${DB_APP_PASSWORD:?ustaw DB_APP_PASSWORD w .env}
+      OPENAUTO_MASTER_KEY: ${OPENAUTO_MASTER_KEY:?ustaw OPENAUTO_MASTER_KEY w .env}
+      OPENAUTO_MODE: ${OPENAUTO_MODE:-test}
+      PUBLIC_URL: https://${DOMAIN}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NODE_ENV: production
+      SECURE_COOKIES: '1'
+      TRUST_PROXY: '1'
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3000:3000' # dostęp z zewnątrz tylko przez HTTPS (caddy)
+
+  # HTTPS z automatycznym certyfikatem Let's Encrypt (wymaga domeny wskazującej na serwer)
+  caddy:
+    image: caddy:2-alpine
+    profiles: ['https']
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?ustaw DOMAIN w .env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
