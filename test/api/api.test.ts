@@ -248,16 +248,16 @@ describe('Dashboard', () => {
 
 describe('Użytkownicy i dziennik zmian', () => {
   test('Właściciel tworzy konto; słabe hasło odrzucone; nowy użytkownik może się zalogować', async () => {
-    const weak = await users.owner.post('/api/users', { email: 'nowy@openauto.pl', fullName: 'Jan Nowy', role: 'serwis', password: 'abc' });
+    const weak = await users.owner.post('/api/users', { email: 'nowy@openauto.test', fullName: 'Jan Nowy', role: 'serwis', password: 'abc' });
     assert.equal(weak.status, 400);
     const ok = await users.owner.post('/api/users', {
-      email: 'Nowy@OpenAuto.pl',
+      email: 'Nowy@OpenAuto.test',
       fullName: 'Jan Nowy',
       role: 'serwis',
       password: 'Mechanik-2026',
     });
     assert.equal(ok.status, 200);
-    const fresh = await new ApiClient(srv.base).login('nowy@openauto.pl', 'Mechanik-2026');
+    const fresh = await new ApiClient(srv.base).login('nowy@openauto.test', 'Mechanik-2026');
     // hasło tymczasowe: dostęp tylko do zmiany hasła
     const blocked = await fresh.get('/api/cars');
     assert.equal(blocked.status, 403);

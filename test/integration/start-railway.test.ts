@@ -36,7 +36,7 @@ async function start() {
       DB_DRIVER: await driver(),
       APP_DB_USER: 'oa_start_app',
       OPENAUTO_MASTER_KEY: 'start-test-master-key-0123456789-abcdefgh',
-      BOOTSTRAP_OWNER_EMAIL: 'Szef@OpenAuto.pl',
+      BOOTSTRAP_OWNER_EMAIL: 'Szef@OpenAuto.test',
       BOOTSTRAP_OWNER_PASSWORD: 'Pierwsze-haslo-2026',
       BOOTSTRAP_OWNER_NAME: 'Szef Firmy',
       RAILWAY_ENVIRONMENT_NAME: 'pr-1',
@@ -83,10 +83,10 @@ after(async () => {
 test('pierwszy start: migracje, rola aplikacji z RLS, konto właściciela ze zmiennych', async () => {
   await start();
   assert.match(logs, /Zastosowano migracje: 0001_init.sql, 0002_drive_backups.sql/);
-  assert.match(logs, /Utworzono konto Właściciela szef@openauto.pl/);
+  assert.match(logs, /Utworzono konto Właściciela szef@openauto.test/);
   assert.match(logs, /tryb: test, środowisko: pr-1/);
   // NODE_ENV=production: serwer zatrzymałby się, gdyby rola omijała RLS — działa, więc rola jest ograniczona
-  const c = await new ApiClient(`http://127.0.0.1:${port}`).login('szef@openauto.pl', 'Pierwsze-haslo-2026');
+  const c = await new ApiClient(`http://127.0.0.1:${port}`).login('szef@openauto.test', 'Pierwsze-haslo-2026');
   const me = await c.get('/api/auth/me');
   assert.equal(me.body.role, 'owner');
   assert.equal(me.body.mode, 'test');
@@ -106,7 +106,7 @@ test('restart (nowe wdrożenie): bez ponownych migracji, bez drugiego właścici
   const users = await p.query<{ n: string }>('SELECT count(*) AS n FROM users');
   await p.end();
   assert.equal(users.rows[0].n, '1');
-  await new ApiClient(`http://127.0.0.1:${port}`).login('szef@openauto.pl', 'Pierwsze-haslo-2026');
+  await new ApiClient(`http://127.0.0.1:${port}`).login('szef@openauto.test', 'Pierwsze-haslo-2026');
 });
 
 test('za proxy Railway: blokada logowania liczy adres z X-Real-IP, nie z podrobionego X-Forwarded-For', async () => {
