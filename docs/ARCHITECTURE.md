@@ -143,7 +143,7 @@ RLS — щоб архітектура була цілісною й наступ�
 ## 7. Розгортання, Google Drive і резервні копії
 
 **Railway:** Dockerfile → `node dist/server/start.js`: міграції з `DATABASE_URL` (власник схеми) → роль
-`openauto_app` (без BYPASSRLS; пароль = HKDF з `OPENAUTO_MASTER_KEY`, тож стабільний між розгортаннями) →
+`openauto_app` (без BYPASSRLS; пароль = HKDF з пароля `DATABASE_URL` — стабільний між розгортаннями й не залежить від `OPENAUTO_MASTER_KEY`, див. `src/server/db/app-role.ts`) →
 перший власник зі змінних `BOOTSTRAP_*` (лише якщо в базі немає користувачів) → сервер, що обслуговує
 запити роллю `openauto_app`. Адмін-з'єднання залишається в пам'яті лише для копій і токена Drive
 (таблиці `system_integrations`, `backup_runs`, `system_settings` недоступні ролі застосунку на запис).

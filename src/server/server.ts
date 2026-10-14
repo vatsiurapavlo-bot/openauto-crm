@@ -50,7 +50,7 @@ export async function runServer({ cfg, adminUrl }: RunOptions) {
   const server = http.createServer(createApp(db, cfg, { backup, google, adminPool }));
   server.listen(cfg.port, cfg.host, () => {
     console.log(
-      `OpenAuto CRM działa: ${cfg.publicUrl ?? `http://localhost:${cfg.port}`} (tryb: ${cfg.mode}` +
+      `OpenAuto CRM działa: ${cfg.publicUrl ?? `http://localhost:${cfg.port}`} (port: ${cfg.port}, tryb: ${cfg.mode}` +
         `${cfg.environmentName ? `, środowisko: ${cfg.environmentName}` : ''})`,
     );
   });
