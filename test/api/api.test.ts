@@ -359,11 +359,53 @@ describe('Użytkownicy i dziennik zmian', () => {
     assert.equal(oldLogin.status, 401);
     await new ApiClient(srv.base).login('nowy.adres@firma.test', 'Wlasne-haslo-2026');
 
-    const ev = await t.owner.query<{ after: any }>("SELECT after FROM audit_log WHERE action = 'EMAIL_CHANGED' AND entity = 'auth'");
+    const ev = await t.owner.query<{ after: any }>(
+      "SELECT after FROM audit_log WHERE action = 'EMAIL_CHANGED' AND entity = 'auth' AND after->>'to' = 'nowy.adres@firma.test'",
+    );
     assert.equal(ev.rows.length, 1);
     assert.deepEqual(ev.rows[0].after, { from: 'stary.adres@openauto.test', to: 'nowy.adres@firma.test' });
     // właściciel widzi nowy adres na liście użytkowników
     const list = await users.owner.get('/api/users');
     assert.ok(list.body.some((u: any) => u.email === 'nowy.adres@firma.test'));
+  });
+
+  test('zajęcie cudzego e-maila nie daje dostępu do innej przestrzeni; zmiana widoczna w dzienniku każdej przestrzeni', async () => {
+    const B = await seedWorkspace(t.owner, 'abauto');
+    const ownerB = await new ApiClient(srv.base).login(B.users.owner.email, B.users.owner.password);
+    await users.owner.post('/api/users', { email: 'atak@openauto.test', fullName: 'Ktoś', role: 'viewer', password: 'Tymczasowe-2026' });
+    const att = await new ApiClient(srv.base).login('atak@openauto.test', 'Tymczasowe-2026');
+    await att.post('/api/auth/password', { currentPassword: 'Tymczasowe-2026', newPassword: 'Wlasne-haslo-2026' });
+    const attId = (await t.owner.query<{ id: string }>("SELECT id FROM users WHERE email = 'atak@openauto.test'")).rows[0].id;
+    // ta sama osoba jest też w przestrzeni B (np. właściciel obu firm) — zmiana musi być widoczna w obu dziennikach
+    await t.owner.query("INSERT INTO workspace_members (workspace_id, user_id, role_code) VALUES ($1, $2, 'viewer')", [B.workspaceId, attId]);
+
+    // zajmuje adres przyszłej pracownicy firmy B
+    const squat = await att.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: 'ksiegowa@firmab.test' });
+    assert.equal(squat.status, 200);
+    const logged = await t.owner.query<{ workspace_id: string }>(
+      "SELECT workspace_id FROM audit_log WHERE action = 'EMAIL_CHANGED' AND entity_id = $1 ORDER BY workspace_id",
+      [attId],
+    );
+    assert.deepEqual(logged.rows.map((r) => r.workspace_id).sort(), [A.workspaceId, B.workspaceId].sort());
+
+    // właściwy scenariusz ataku: osoba spoza B zajęła adres przyszłej pracownicy B
+    await t.owner.query('DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [B.workspaceId, attId]);
+    // właściciel B zakłada konto z tym adresem jako administrator — odmowa zamiast po cichu dołączyć cudze konto
+    const r = await ownerB.post('/api/users', { email: 'ksiegowa@firmab.test', fullName: 'Księgowa', role: 'administrator', password: 'Haslo-od-szefa-1' });
+    assert.equal(r.status, 409);
+    assert.ok(r.body.error.details?.fields?.email, JSON.stringify(r.body));
+    const member = await t.owner.query('SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [B.workspaceId, attId]);
+    assert.equal(member.rowCount, 0, 'brak dostępu do B');
+  });
+
+  test('sprawdzanie zajętych adresów jest ograniczone limitem prób', async () => {
+    await users.owner.post('/api/users', { email: 'sonda@openauto.test', fullName: 'Sonda', role: 'viewer', password: 'Tymczasowe-2026' });
+    const c = await new ApiClient(srv.base).login('sonda@openauto.test', 'Tymczasowe-2026');
+    await c.post('/api/auth/password', { currentPassword: 'Tymczasowe-2026', newPassword: 'Wlasne-haslo-2026' });
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      codes.push((await c.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: A.users.manager.email })).status);
+    }
+    assert.deepEqual(codes, [409, 409, 409, 409, 409, 429]);
   });
 });
