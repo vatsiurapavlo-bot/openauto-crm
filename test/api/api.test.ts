@@ -320,4 +320,50 @@ describe('Użytkownicy i dziennik zmian', () => {
     assert.equal((await other.get('/api/auth/me')).status, 401);
     assert.equal((await mine.get('/api/auth/me')).status, 200);
   });
+
+  test('zmiana własnego e-maila: wymaga hasła, unikalna, wylogowuje inne sesje, stary e-mail przestaje działać', async () => {
+    const created = await users.owner.post('/api/users', {
+      email: 'stary.adres@openauto.test',
+      fullName: 'Anna Zmienna',
+      role: 'viewer',
+      password: 'Tymczasowe-2026',
+    });
+    assert.equal(created.status, 200);
+    const mine = await new ApiClient(srv.base).login('stary.adres@openauto.test', 'Tymczasowe-2026');
+    // z hasłem tymczasowym najpierw trzeba ustawić własne hasło
+    const early = await mine.post('/api/auth/email', { currentPassword: 'Tymczasowe-2026', newEmail: 'x@openauto.test' });
+    assert.equal(early.status, 403);
+    assert.equal((await mine.post('/api/auth/password', { currentPassword: 'Tymczasowe-2026', newPassword: 'Wlasne-haslo-2026' })).status, 200);
+    const other = await new ApiClient(srv.base).login('stary.adres@openauto.test', 'Wlasne-haslo-2026');
+
+    const wrongPw = await mine.post('/api/auth/email', { currentPassword: 'zle-haslo', newEmail: 'nowy.adres@firma.test' });
+    assert.equal(wrongPw.status, 400);
+    assert.ok(wrongPw.body.error.details.fields.currentPassword);
+    const invalid = await mine.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: 'to-nie-email' });
+    assert.equal(invalid.status, 400);
+    assert.ok(invalid.body.error.details.fields.newEmail);
+    const same = await mine.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: 'Stary.Adres@openauto.test' });
+    assert.equal(same.status, 400);
+    const taken = await mine.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: A.users.owner.email });
+    assert.equal(taken.status, 409);
+    const extra = await mine.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: 'a@b.test', role: 'owner' });
+    assert.equal(extra.status, 400, 'dodatkowe pola odrzucone');
+
+    const ok = await mine.post('/api/auth/email', { currentPassword: 'Wlasne-haslo-2026', newEmail: ' Nowy.Adres@Firma.test ' });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.email, 'nowy.adres@firma.test');
+    assert.equal((await mine.get('/api/auth/me')).body.user.email, 'nowy.adres@firma.test');
+    assert.equal((await other.get('/api/auth/me')).status, 401, 'inne sesje wylogowane');
+
+    const oldLogin = await new ApiClient(srv.base).post('/api/auth/login', { email: 'stary.adres@openauto.test', password: 'Wlasne-haslo-2026' });
+    assert.equal(oldLogin.status, 401);
+    await new ApiClient(srv.base).login('nowy.adres@firma.test', 'Wlasne-haslo-2026');
+
+    const ev = await t.owner.query<{ after: any }>("SELECT after FROM audit_log WHERE action = 'EMAIL_CHANGED' AND entity = 'auth'");
+    assert.equal(ev.rows.length, 1);
+    assert.deepEqual(ev.rows[0].after, { from: 'stary.adres@openauto.test', to: 'nowy.adres@firma.test' });
+    // właściciel widzi nowy adres na liście użytkowników
+    const list = await users.owner.get('/api/users');
+    assert.ok(list.body.some((u: any) => u.email === 'nowy.adres@firma.test'));
+  });
 });

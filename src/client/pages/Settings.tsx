@@ -28,6 +28,7 @@ export function SettingsPage() {
         {app.can('backup.manage') && app.me.role === 'owner' && <BackupPanel />}
         {app.can('backup.manage') && app.me.role === 'owner' && <LaunchPanel />}
         <PasswordPanel />
+        <EmailPanel />
         <section className="panel">
           <header className="panel-head">
             <h2>Statusy samochodów</h2>
@@ -105,6 +106,60 @@ function PasswordPanel({ onChanged }: { onChanged?: () => void } = {}) {
         <div className="form-actions">
           <button className="btn btn-primary" disabled={!v.currentPassword || !v.newPassword}>
             Zmień hasło
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+/** Zmiana własnego adresu e-mail, którym loguje się użytkownik. */
+function EmailPanel() {
+  const app = useApp();
+  const toast = useToast();
+  const [current, setCurrent] = useState(app.me.user.email);
+  const [v, setV] = useState({ newEmail: '', currentPassword: '' });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErrors({});
+    setBusy(true);
+    try {
+      const r = await api.post<{ email: string }>('/api/auth/email', v);
+      setCurrent(r.email);
+      setV({ newEmail: '', currentPassword: '' });
+      toast(`E-mail zmieniony na ${r.email}. Od teraz loguj się nowym adresem. Inne sesje zostały wylogowane.`);
+    } catch (err) {
+      const fields = (err as ApiError).fields;
+      setErrors(Object.keys(fields).length ? fields : { newEmail: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  const set = (k: keyof typeof v) => (e: { target: { value: string } }) => setV((s) => ({ ...s, [k]: e.target.value }));
+  return (
+    <section className="panel">
+      <header className="panel-head">
+        <h2>
+          <Icon name="users" size={15} /> Zmiana e-maila (logowanie)
+        </h2>
+      </header>
+      <form className="form" onSubmit={submit}>
+        <p className="muted">
+          Obecny e-mail: <strong className="mono">{current}</strong>
+        </p>
+        <div className="form-grid one">
+          <Field label="Nowy e-mail" error={errors.newEmail}>
+            <input type="email" autoComplete="email" inputMode="email" value={v.newEmail} onChange={set('newEmail')} />
+          </Field>
+          <Field label="Obecne hasło (potwierdzenie)" error={errors.currentPassword}>
+            <input type="password" autoComplete="current-password" value={v.currentPassword} onChange={set('currentPassword')} />
+          </Field>
+        </div>
+        <div className="form-actions">
+          <button className="btn btn-primary" disabled={busy || !v.newEmail || !v.currentPassword}>
+            {busy ? 'Zapisywanie…' : 'Zmień e-mail'}
           </button>
         </div>
       </form>

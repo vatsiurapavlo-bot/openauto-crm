@@ -119,6 +119,52 @@ export async function changeOwnPassword(ctx: Ctx, input: unknown) {
   await ctx.q.query('SELECT app_log_auth_event($1, $2, $3, $4)', [ctx.session.workspaceId, ctx.session.userId, 'PASSWORD_CHANGED', {}]);
 }
 
+const changeEmailSchema = z
+  .object({
+    currentPassword: z.string().max(200),
+    newEmail: z.string().trim().toLowerCase().email('Nieprawidłowy e-mail').max(200),
+  })
+  .strict();
+
+/**
+ * Zmiana własnego adresu e-mail (loginu). Wymaga obecnego hasła; ten sam limit prób co zmiana hasła.
+ * Po zmianie pozostałe sesje użytkownika są wylogowane (jak przy zmianie hasła).
+ */
+export async function changeOwnEmail(ctx: Ctx, input: unknown): Promise<{ email: string }> {
+  const data = parseOrThrow(changeEmailSchema, input);
+  const key = ctx.session.userId;
+  if (!passwordChangeLimiter.tryAttempt(key, key)) throw new HttpError(429, 'Zbyt wiele prób. Spróbuj za 15 minut.');
+  const { rows } = await ctx.q.query<{ password_hash: string; email: string }>(
+    'SELECT password_hash, email FROM users WHERE id = $1',
+    [ctx.session.userId],
+  );
+  if (!(await verifyPassword(data.currentPassword, rows[0]?.password_hash ?? null))) {
+    await ctx.q.query('SELECT app_log_auth_event($1, $2, $3, $4)', [
+      ctx.session.workspaceId,
+      ctx.session.userId,
+      'LOGIN_FAILED',
+      { reason: 'zmiana_emaila' },
+    ]);
+    throw badRequest('Obecne hasło jest nieprawidłowe', { fields: { currentPassword: 'Nieprawidłowe hasło' } });
+  }
+  passwordChangeLimiter.success(key, key);
+  const oldEmail = rows[0].email;
+  if (data.newEmail === oldEmail) {
+    throw badRequest('To jest Twój obecny e-mail', { fields: { newEmail: 'Taki sam jak obecny' } });
+  }
+  const taken = await ctx.q.query('SELECT 1 FROM users WHERE email = $1', [data.newEmail]);
+  if (taken.rowCount) throw new HttpError(409, 'Ten e-mail jest już używany przez inne konto', 'conflict', { fields: { newEmail: 'Zajęty' } });
+  await ctx.q.query('UPDATE users SET email = $2 WHERE id = $1', [ctx.session.userId, data.newEmail]);
+  await revokeAllUserSessions(ctx.q, ctx.session.userId, ctx.session.sessionId);
+  await ctx.q.query('SELECT app_log_auth_event($1, $2, $3, $4)', [
+    ctx.session.workspaceId,
+    ctx.session.userId,
+    'EMAIL_CHANGED',
+    { from: oldEmail, to: data.newEmail },
+  ]);
+  return { email: data.newEmail };
+}
+
 export async function listAudit(ctx: Ctx, opts: { entity?: string; entityId?: string; limit?: number }) {
   requirePerm(ctx, 'audit.view');
   const { rows } = await ctx.q.query(
