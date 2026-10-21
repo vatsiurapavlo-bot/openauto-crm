@@ -1,5 +1,5 @@
 import type { PoolLike } from './types.ts';
-import { hashPassword, validatePasswordStrength } from '../auth/password.ts';
+import { hashPassword, validatePasswordStrength, verifyPassword } from '../auth/password.ts';
 
 export interface OwnerInput {
   workspaceCode: string;
@@ -31,7 +31,17 @@ export async function ensureWorkspaceOwner(pool: PoolLike, input: OwnerInput): P
       await client.query('SELECT init_workspace($1)', [ws.id]);
       createdWorkspace = true;
     }
-    let user = (await client.query<{ id: string }>('SELECT id FROM users WHERE email = $1', [email])).rows[0];
+    const existing = (
+      await client.query<{ id: string; password_hash: string | null }>('SELECT id, password_hash FROM users WHERE email = $1', [email])
+    ).rows[0];
+    // Istniejące konto (np. właściciel OpenAuto zakładający AB Auto) dostaje rolę Właściciel tylko po podaniu
+    // JEGO obecnego hasła — inaczej ktoś, kto wcześniej zajął ten e-mail, zostałby właścicielem nowej firmy.
+    if (existing && !(await verifyPassword(input.password, existing.password_hash))) {
+      throw new Error(
+        `Konto ${email} już istnieje. Aby nadać mu rolę Właściciel, podaj obecne hasło tego konta (albo użyj innego e-maila).`,
+      );
+    }
+    let user: { id: string } | undefined = existing;
     if (!user) {
       user = (
         await client.query<{ id: string }>(
