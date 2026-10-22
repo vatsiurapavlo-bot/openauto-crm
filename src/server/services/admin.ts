@@ -48,6 +48,7 @@ export async function getMeta(ctx: Ctx): Promise<Meta> {
     costCategories,
     vatRates,
     kasaOd: kasa.rows[0]?.d ?? null,
+    voiceEnabled: false, // ustawiane w app.ts (zależy od konfiguracji serwera)
     fuelTypes: FUEL_TYPES,
     gearboxTypes: GEARBOX_TYPES,
     purchaseTypes: PURCHASE_TYPES,

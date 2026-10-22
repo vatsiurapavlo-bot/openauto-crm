@@ -176,6 +176,17 @@ CRM буде дуже активно використовуватися — **7�
 - **GitHub:** Settings → Emails → додати й підтвердити новий → **Primary email address**.
 - **Railway:** спосіб залежить від того, як ви входите (через GitHub чи через email) — інструкцію дає Claude.
 
+### Диктування витрат (кнопка «Dyktuj»)
+
+1. Зайдіть у **Claude Console** (platform.claude.com) фірмовим email → поповніть рахунок (кредити купуються наперед).
+2. **API Keys → Create Key** → назва `OpenAuto CRM` → скопіюйте ключ (показується один раз).
+3. Railway → openauto-crm → Variables → `ANTHROPIC_API_KEY` = ключ → Deploy. Ключ нікому не надсилайте (і Claude в чаті теж).
+4. У CRM: Koszty → **Dyktuj** → скажіть, напр., «Paliwo 250 złotych gotówką, auto 17» → **Rozpoznaj** → перевірте форму → **Dodaj koszt**.
+
+До Claude надсилається лише продиктований текст, сьогоднішня дата та назви категорій / ставок VAT. Список авто
+не надсилається — авто знаходить CRM у своїй базі. Без натискання «Dodaj koszt» нічого не зберігається.
+Ліміт: 30 розпізнавань на 10 хвилин на користувача. Орієнтовна вартість — частки гроша за одне розпізнавання.
+
 ---
 
 ## 9. Якщо щось пішло не так
@@ -201,6 +212,8 @@ CRM буде дуже активно використовуватися — **7�
 | `DATABASE_URL` | так | `${{Postgres.DATABASE_URL}}` |
 | `OPENAUTO_MASTER_KEY` | так (крок 3) | ключ шифрування копій і токена Google; зберігати поза Railway |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | для Drive | з Google Cloud (крок 4) |
+| `ANTHROPIC_API_KEY` | для диктування витрат | ключ Claude API (розділ «Диктування витрат»); без нього кнопка «Dyktuj» прихована |
+| `ANTHROPIC_MODEL` | ні | модель для розпізнавання; за замовчуванням `claude-haiku-5-5` |
 | `BOOTSTRAP_OWNER_EMAIL`, `…_NAME`, `…_PASSWORD` | лише перший запуск | акаунт власника; пароль видалити після входу |
 | `OPENAUTO_MODE` | ні | `production` — альтернатива підтвердженню в CRM |
 | `PUBLIC_URL` | ні | лише для власного домену (Railway-адресу CRM визначає сама) |

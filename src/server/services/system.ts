@@ -1,4 +1,5 @@
 /** Google Drive i kopie zapasowe — dostępne tylko dla ról z uprawnieniem backup.manage (Właściciel, Administrator). */
+import type { AnthropicConfig } from '../integrations/anthropic/cost-parser.ts';
 import type { PoolLike } from '../db/types.ts';
 import type { SessionInfo } from '../auth/sessions.ts';
 import { HttpError, badRequest } from '../http/core.ts';
@@ -11,6 +12,8 @@ export interface SystemDeps {
   backup: BackupService | null;
   google: GoogleConfig | null;
   adminPool: PoolLike | null;
+  /** Claude API — rozpoznawanie podyktowanych kosztów; null = funkcja wyłączona */
+  anthropic?: AnthropicConfig | null;
 }
 
 /**

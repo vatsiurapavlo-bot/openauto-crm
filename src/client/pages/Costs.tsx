@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { PAYMENT_METHODS, type Cost, type CostList } from '../../shared/types.ts';
+import { PAYMENT_METHODS, type Cost, type CostList, type CostVoiceResult } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { Link, setSearchParams, useLocation } from '../router.tsx';
 import { useApp } from '../state.tsx';
 import { Empty, ErrorBox, Icon, Spinner, date, money, useLoad } from '../ui.tsx';
 import { CostFormModal } from './CostForm.tsx';
+import { VoiceCostButton } from './VoiceCost.tsx';
+
+type Editing = Cost | 'new' | { voice: CostVoiceResult } | null;
+const isVoice = (e: Editing): e is { voice: CostVoiceResult } => !!e && typeof e === 'object' && 'voice' in e;
 
 /** Zakresy dat: bieżący miesiąc, poprzedni, rok, wszystko */
 export function periodRange(p: string): { od?: string; do?: string } {
@@ -58,7 +62,7 @@ export function CostsPage() {
   const app = useApp();
   const { search } = useLocation();
   const [q, setQ] = useState(search.get('q') ?? '');
-  const [editing, setEditing] = useState<Cost | 'new' | null>(null);
+  const [editing, setEditing] = useState<Editing>(null);
   const [showFilters, setShowFilters] = useState(!!(search.get('kategoria') || search.get('sposob') || search.get('zakres') || search.get('status')));
 
   useEffect(() => {
@@ -86,9 +90,12 @@ export function CostsPage() {
           <p className="muted">{data ? `${data.total} ${data.total === 1 ? 'koszt' : 'kosztów'} w wybranym okresie` : ' '}</p>
         </div>
         {app.can('costs.edit') && (
-          <button className="btn btn-primary" onClick={() => setEditing('new')}>
-            <Icon name="plus" /> Dodaj koszt
-          </button>
+          <div className="head-actions">
+            <VoiceCostButton onResult={(voice) => setEditing({ voice })} />
+            <button className="btn btn-primary" onClick={() => setEditing('new')}>
+              <Icon name="plus" /> Dodaj koszt
+            </button>
+          </div>
         )}
       </div>
 
@@ -168,7 +175,8 @@ export function CostsPage() {
 
       {editing && (
         <CostFormModal
-          cost={editing === 'new' ? undefined : editing}
+          cost={editing === 'new' || isVoice(editing) ? undefined : editing}
+          voice={isVoice(editing) ? editing.voice : undefined}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -273,7 +281,7 @@ function PayBadge({ c }: { c: Cost }) {
 export function CarCostsPanel({ carId, onChanged }: { carId: string; onChanged?: () => void }) {
   const app = useApp();
   const { data, error, reload } = useLoad(() => api.get<CostList>(`/api/costs?car=${carId}&limit=200`), [carId]);
-  const [editing, setEditing] = useState<Cost | 'new' | null>(null);
+  const [editing, setEditing] = useState<Editing>(null);
   return (
     <section className="panel">
       <header className="panel-head">
@@ -281,9 +289,12 @@ export function CarCostsPanel({ carId, onChanged }: { carId: string; onChanged?:
           <Icon name="receipt" size={15} /> Koszty auta
         </h2>
         {app.can('costs.edit') && (
-          <button className="btn btn-ghost btn-sm" onClick={() => setEditing('new')}>
-            <Icon name="plus" size={14} /> Dodaj koszt
-          </button>
+          <div className="head-actions">
+            <VoiceCostButton small onResult={(voice) => setEditing({ voice })} />
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing('new')}>
+              <Icon name="plus" size={14} /> Dodaj koszt
+            </button>
+          </div>
         )}
       </header>
       {error && <ErrorBox error={error} onRetry={reload} />}
@@ -298,8 +309,9 @@ export function CarCostsPanel({ carId, onChanged }: { carId: string; onChanged?:
       )}
       {editing && (
         <CostFormModal
-          cost={editing === 'new' ? undefined : editing}
-          lockCarId={editing === 'new' ? carId : undefined}
+          cost={editing === 'new' || isVoice(editing) ? undefined : editing}
+          voice={isVoice(editing) ? editing.voice : undefined}
+          lockCarId={editing === 'new' || isVoice(editing) ? carId : undefined}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

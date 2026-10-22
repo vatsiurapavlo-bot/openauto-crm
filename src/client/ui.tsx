@@ -34,6 +34,7 @@ const PATHS: Record<string, ReactNode> = {
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
   filter: <path d="M4 5h16l-6 7v6l-4 2v-8z" />,
   import: <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />,
+  mic: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></>,
 };
 
 export function Icon({ name, size = 18, className }: { name: string; size?: number; className?: string }) {

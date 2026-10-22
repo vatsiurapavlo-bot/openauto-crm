@@ -5,6 +5,7 @@ import { checkAppRoleIsRestricted } from './db/migrate.ts';
 import { createApp } from './app.ts';
 import { BackupService } from './services/backup.ts';
 import { googleConfig } from './integrations/google/drive.ts';
+import { anthropicConfig } from './integrations/anthropic/cost-parser.ts';
 
 export interface RunOptions {
   cfg: Config;
@@ -47,7 +48,9 @@ export async function runServer({ cfg, adminUrl }: RunOptions) {
     console.warn('Brak połączenia administracyjnego — kopie zapasowe i Google Drive są wyłączone.');
   }
 
-  const server = http.createServer(createApp(db, cfg, { backup, google, adminPool }));
+  const anthropic = anthropicConfig();
+  if (anthropic) console.log(`Dyktowanie kosztów: włączone (model ${anthropic.model})`);
+  const server = http.createServer(createApp(db, cfg, { backup, google, adminPool, anthropic }));
   server.listen(cfg.port, cfg.host, () => {
     console.log(
       `OpenAuto CRM działa: ${cfg.publicUrl ?? `http://localhost:${cfg.port}`} (port: ${cfg.port}, tryb: ${cfg.mode}` +

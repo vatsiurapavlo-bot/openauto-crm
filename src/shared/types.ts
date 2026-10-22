@@ -152,6 +152,8 @@ export interface Meta {
   vatRates: VatRate[];
   /** Od tej daty koszty gotówkowe zmieniają kasę (data salda początkowego); null = brak dostępu do kasy */
   kasaOd: string | null;
+  /** Dyktowanie kosztów włączone (klucz ANTHROPIC_API_KEY) i użytkownik może dodawać koszty */
+  voiceEnabled: boolean;
   fuelTypes: string[];
   gearboxTypes: string[];
   purchaseTypes: string[];
@@ -270,4 +272,23 @@ export interface KasaView {
   /** Sumy w wybranym okresie */
   wplywy: string;
   wyplywy: string;
+}
+
+/** Wynik rozpoznania podyktowanego kosztu — propozycja do formularza, nic nie jest zapisane */
+export interface CostVoiceResult {
+  text: string;
+  draft: {
+    kwota?: string;
+    kwotaTyp?: 'netto' | 'brutto';
+    vatRateId?: string;
+    sposobPlatnosci?: PaymentMethod;
+    categoryId?: string;
+    data?: string;
+    opis?: string;
+    carId?: string;
+    czyFaktura?: boolean;
+    numerFaktury?: string;
+  };
+  car: { status: 'found' | 'ambiguous' | 'not_found' | 'none'; candidates: CarRef[]; said: string | null };
+  uwagi: string[];
 }

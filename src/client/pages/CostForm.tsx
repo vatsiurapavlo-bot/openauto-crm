@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { PAYMENT_METHODS, type CarList, type Cost, type PaymentMethod } from '../../shared/types.ts';
+import { PAYMENT_METHODS, type CarList, type Cost, type CostVoiceResult, type PaymentMethod } from '../../shared/types.ts';
 import { toCents, toDecimalString } from '../../shared/money.ts';
 import { fromGross, fromNet } from '../../shared/vat.ts';
 import { api, ApiError } from '../api.ts';
@@ -53,6 +53,12 @@ function fromCost(c: Cost): CostDraft {
   };
 }
 
+function cleanDraft(d: CostVoiceResult['draft']): Partial<CostDraft> {
+  const out: Partial<CostDraft> = {};
+  for (const [k, v] of Object.entries(d)) if (v !== undefined && v !== null) (out as Record<string, unknown>)[k] = v;
+  return out;
+}
+
 /** Podgląd kwot liczony tak samo jak na serwerze (te same funkcje). */
 function preview(kwota: string, typ: 'netto' | 'brutto', rate: string) {
   try {
@@ -70,6 +76,8 @@ export function CostFormModal(props: {
   initial?: Partial<CostDraft>;
   /** koszt dodawany z karty auta */
   lockCarId?: string;
+  /** propozycja z dyktowania — użytkownik sprawdza i zapisuje */
+  voice?: CostVoiceResult;
   onClose: () => void;
   onSaved: (c: Cost) => void;
 }) {
@@ -94,6 +102,8 @@ export function CostFormModal(props: {
     notatka: '',
     ...(cost ? fromCost(cost) : {}),
     ...props.initial,
+    ...(props.voice ? cleanDraft(props.voice.draft) : {}),
+    ...(props.lockCarId ? { carId: props.lockCarId } : {}),
   }));
   // klucz formularza: ten sam przy ponownym wysłaniu tych samych danych (np. po zerwanym połączeniu),
   // nowy — gdy dane zmieniono (inaczej serwer zwróciłby wcześniej zapisany koszt)
@@ -174,13 +184,38 @@ export function CostFormModal(props: {
   return (
     <Modal title={title} onClose={onClose} wide>
       <form onSubmit={submit} className="form cost-form" noValidate>
+        {props.voice && (
+          <div className="voice-banner" role="status">
+            <Icon name="mic" size={16} />
+            <div>
+              <strong>Uzupełniono z dyktowania — sprawdź pola i zapisz.</strong>
+              <div className="muted small">„{props.voice.text}”</div>
+              {props.voice.uwagi.length > 0 && (
+                <ul className="voice-notes">
+                  {props.voice.uwagi.map((u) => (
+                    <li key={u}>{u}</li>
+                  ))}
+                </ul>
+              )}
+              {!props.lockCarId && props.voice.car.status === 'ambiguous' && (
+                <div className="chips voice-cars" role="group" aria-label="Pasujące auta">
+                  {props.voice.car.candidates.map((c) => (
+                    <button type="button" key={c.id} className={'chip' + (v.carId === c.id ? ' on' : '')} onClick={() => set('carId', c.id)}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <fieldset className="form-section" disabled={!canEdit}>
           <div className="form-grid">
             <Field label="Kwota (zł) *" error={errors.kwota}>
               <div className="amount-row">
                 <input
                   inputMode="decimal"
-                  autoFocus={!cost}
+                  autoFocus={!cost && !props.voice}
                   placeholder="0,00"
                   value={v.kwota}
                   onChange={(e) => set('kwota', e.target.value)}

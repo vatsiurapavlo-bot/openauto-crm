@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import { chromium, type Browser, type Page } from 'playwright';
 import { createTestDatabase, seedWorkspace, statusId, type Seeded, type TestDb } from '../helpers/db.ts';
 import { startServer } from '../helpers/server.ts';
+import { startFakeAnthropic } from '../helpers/fake-anthropic.ts';
 
 let t: TestDb;
 let A: Seeded;
@@ -183,4 +184,52 @@ test('Telefon: Koszty i Kasa bez poziomego przewijania', async () => {
     assert.equal(overflow, false, path);
   }
   await ctx.close();
+});
+
+test('Dyktowanie: tekst → rozpoznanie → formularz wypełniony → zapis po potwierdzeniu', async () => {
+  const fake = await startFakeAnthropic();
+  const vsrv = await startServer(t.app, 'dist/public', {
+    backup: null,
+    google: null,
+    adminPool: null,
+    anthropic: { apiKey: 'k', baseUrl: fake.base, model: 'claude-haiku-5-5', timeoutMs: 5000 },
+  });
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  try {
+    const car = await t.owner.query<{ numer: string }>('SELECT numer FROM cars WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY numer LIMIT 1', [A.workspaceId]);
+    const numer = Number(car.rows[0].numer);
+    fake.state.input = {
+      kwota: '250', kwota_typ: 'brutto', stawka_vat: null, sposob_platnosci: 'gotowka', kategoria: 'inne', data: null,
+      opis: 'Paliwo', auto: { numer, rejestracja: null, vin_koncowka: null, marka_model: null }, czy_faktura: null, numer_faktury: null,
+    };
+    await page.goto(vsrv.base + '/');
+    await page.fill('input[type=email]', A.users.manager.email);
+    await page.fill('input[type=password]', A.users.manager.password);
+    await page.click('button:has-text("Zaloguj")');
+    await page.waitForSelector('.topbar');
+    await page.goto(vsrv.base + '/koszty');
+    await page.click('button:has-text("Dyktuj")');
+    await page.fill('.voice-modal textarea', `Paliwo dwieście pięćdziesiąt złotych gotówką auto ${numer}`);
+    await page.click('.voice-modal button:has-text("Rozpoznaj")');
+    await page.waitForSelector('.voice-banner');
+    const m = page.locator('.modal');
+    assert.equal(await m.locator('input[aria-label="Kwota"]').inputValue(), '250');
+    assert.equal(await m.locator('label:has-text("Opis") input').inputValue(), 'Paliwo');
+    assert.match((await m.locator('label:has-text("Samochód") select option:checked').textContent()) ?? '', new RegExp(`^${numer} — `));
+    const before = await page.evaluate(() => fetch('/api/kasa').then((x) => x.json()).then((k) => Number(k.aktualna)));
+    await m.locator('button:has-text("Dodaj koszt")').click();
+    await page.waitForSelector('.modal', { state: 'detached' });
+    const after = await page.evaluate(() => fetch('/api/kasa').then((x) => x.json()).then((k) => Number(k.aktualna)));
+    assert.equal(after, before - 250);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    assert.equal(overflow, false);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await ctx.close();
+    await vsrv.close();
+    await fake.close();
+  }
 });

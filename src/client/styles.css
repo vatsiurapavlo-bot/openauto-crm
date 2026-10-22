@@ -1886,3 +1886,90 @@ textarea {
     width: 100%;
   }
 }
+
+/* Dyktowanie kosztów */
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.voice-btn {
+  gap: 6px;
+}
+.voice-modal .voice-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.voice-modal .seg button {
+  width: 48px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mic-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 140px;
+  border-radius: var(--radius);
+  border: 2px dashed var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mic-big.on {
+  border-style: solid;
+  border-color: var(--neg);
+  color: var(--neg);
+  background: color-mix(in srgb, var(--neg) 8%, var(--surface));
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--neg) 14%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-big.on {
+    animation: none;
+  }
+}
+.voice-banner {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--focus) 40%, var(--line));
+  background: color-mix(in srgb, var(--focus) 7%, var(--surface));
+}
+.voice-banner > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--focus);
+}
+.voice-notes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.voice-cars {
+  margin: 8px 0 0;
+}
+@media (max-width: 560px) {
+  .page-head .head-actions {
+    width: 100%;
+  }
+  .page-head .head-actions .btn {
+    flex: 1;
+    width: auto;
+  }
+}

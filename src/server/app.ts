@@ -30,6 +30,7 @@ import * as cars from './services/cars.ts';
 import * as admin from './services/admin.ts';
 import * as costs from './services/costs.ts';
 import * as kasa from './services/kasa.ts';
+import * as voice from './services/voice.ts';
 import { getDashboard } from './services/dashboard.ts';
 import * as system from './services/system.ts';
 import type { SystemDeps } from './services/system.ts';
@@ -69,7 +70,10 @@ function buildRouter(cfg: Config, deps: SystemDeps, appPool: PoolLike) {
     return { ok: true };
   });
   r.post('/api/auth/email', async (req) => admin.changeOwnEmail(req.ctx, req.body));
-  r.get('/api/meta', async (req) => admin.getMeta(req.ctx));
+  r.get('/api/meta', async (req) => ({
+    ...(await admin.getMeta(req.ctx)),
+    voiceEnabled: !!deps.anthropic && req.ctx.perms.has('costs.edit'),
+  }));
   r.get('/api/dashboard', async (req) => getDashboard(req.ctx));
 
   r.get('/api/cars', async (req) => {
@@ -122,6 +126,7 @@ function buildRouter(cfg: Config, deps: SystemDeps, appPool: PoolLike) {
     });
   });
   r.post('/api/costs', async (req) => costs.createCost(req.ctx, req.body));
+  r.post('/api/costs/parse', async (req) => voice.parseCostText(req.ctx, deps.anthropic ?? null, req.body));
   r.get('/api/costs/:id', async (req) => costs.getCost(req.ctx, req.params.id));
   r.patch('/api/costs/:id', async (req) => costs.updateCost(req.ctx, req.params.id, req.body));
   r.post('/api/costs/:id/cancel', async (req) => costs.cancelCost(req.ctx, req.params.id, req.body));
