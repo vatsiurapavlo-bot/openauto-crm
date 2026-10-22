@@ -150,6 +150,8 @@ export interface Meta {
   countries: Country[];
   costCategories: CostCategory[];
   vatRates: VatRate[];
+  /** Od tej daty koszty gotówkowe zmieniają kasę (data salda początkowego); null = brak dostępu do kasy */
+  kasaOd: string | null;
   fuelTypes: string[];
   gearboxTypes: string[];
   purchaseTypes: string[];

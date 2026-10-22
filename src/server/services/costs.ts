@@ -30,6 +30,12 @@ export const isoDate = z
     return year >= 2000 && d.getTime() <= Date.now() + 366 * 24 * 3600 * 1000;
   }, 'Nieprawidłowa data');
 
+/** Data operacji/kosztu: najwyżej tydzień do przodu (data z przyszłego roku to prawie zawsze pomyłka). */
+export const entryDate = isoDate.refine((v) => {
+  const limit = new Date(Date.now() + 8 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  return v <= limit;
+}, 'Data nie może być późniejsza niż tydzień od dziś');
+
 export const positiveMoney = z.union([z.string(), z.number()]).transform((v, c) => {
   try {
     const cents = toCents(v);
@@ -49,7 +55,7 @@ export const positiveMoney = z.union([z.string(), z.number()]).transform((v, c) 
 });
 
 const costFields = {
-  data: isoDate,
+  data: entryDate,
   opis: z.string().trim().min(2, 'Opisz koszt (min. 2 znaki)').max(300),
   categoryId: z.string().uuid('Wybierz kategorię'),
   carId: z.string().uuid().nullish().transform((v) => v ?? null),
@@ -71,11 +77,22 @@ export const updateCostSchema = z.object({ ...costFields, version: z.number().in
 
 type CostInput = z.infer<typeof createCostSchema>;
 
-/** Stawka z bazy (tylko ta przestrzeń, przez RLS) → kwoty netto / VAT / brutto. */
-async function amounts(ctx: Ctx, d: Pick<CostInput, 'vatRateId' | 'kwota' | 'kwotaTyp'>) {
+/**
+ * Kwoty netto / VAT / brutto. Nowo wybrana stawka musi być aktywna i obowiązywać dziś (słownik tej przestrzeni,
+ * przez RLS). Przy edycji z tą samą stawką liczymy stawką zapisaną w koszcie — późniejsza zmiana słownika
+ * nie przelicza po cichu starych kosztów.
+ */
+async function amounts(ctx: Ctx, d: Pick<CostInput, 'vatRateId' | 'kwota' | 'kwotaTyp'>, keep?: { vatRateId: string | null; stawka: string }) {
   let rate = '0';
-  if (d.vatRateId) {
-    const { rows } = await ctx.q.query<{ rate: string }>('SELECT rate::text AS rate FROM vat_rates WHERE id = $1', [d.vatRateId]);
+  if (d.vatRateId && keep && keep.vatRateId === d.vatRateId) {
+    rate = keep.stawka;
+  } else if (d.vatRateId) {
+    const { rows } = await ctx.q.query<{ rate: string }>(
+      `SELECT rate::text AS rate FROM vat_rates WHERE id = $1 AND active
+         AND valid_from <= (now() AT TIME ZONE 'Europe/Warsaw')::date
+         AND (valid_to IS NULL OR valid_to >= (now() AT TIME ZONE 'Europe/Warsaw')::date)`,
+      [d.vatRateId],
+    );
     if (!rows[0]) throw badRequest('Nieprawidłowa stawka VAT', { fields: { vatRateId: 'Wybierz stawkę' } });
     rate = rows[0].rate;
   }
@@ -245,8 +262,14 @@ function staleError() {
 
 async function currentCost(ctx: Ctx, id: string) {
   if (!isUuid(id)) throw notFound('Nie znaleziono kosztu');
-  const { rows } = await ctx.q.query<{ version: number; cancelled_at: string | null; car_id: string | null }>(
-    'SELECT version, cancelled_at, car_id FROM costs WHERE id = $1',
+  const { rows } = await ctx.q.query<{
+    version: number;
+    cancelled_at: string | null;
+    car_id: string | null;
+    vat_rate_id: string | null;
+    stawka_vat: string;
+  }>(
+    'SELECT version, cancelled_at, car_id, vat_rate_id, stawka_vat::text AS stawka_vat FROM costs WHERE id = $1',
     [id],
   );
   if (!rows[0]) throw notFound('Nie znaleziono kosztu');
@@ -260,7 +283,7 @@ export async function updateCost(ctx: Ctx, id: string, input: unknown): Promise<
   const cur = await currentCost(ctx, id);
   if (cur.version !== d.version) throw staleError();
   if (d.carId !== cur.car_id) await assertCarVisible(ctx, d.carId);
-  const a = await amounts(ctx, d);
+  const a = await amounts(ctx, d, { vatRateId: cur.vat_rate_id, stawka: cur.stawka_vat });
   const vatDoOdliczenia = d.vatDoOdliczenia ?? (d.czyFaktura && toCents(a.vat) > 0n);
   try {
     const res = await ctx.q.query(

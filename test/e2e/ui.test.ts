@@ -18,6 +18,7 @@ before(async () => {
   assert.ok(fs.existsSync('dist/public/index.html'), 'Najpierw uruchom: npm run build');
   t = await createTestDatabase();
   A = await seedWorkspace(t.owner);
+  await t.owner.query("UPDATE kasa_accounts SET data_poczatkowa = '2000-01-01'");
   srv = await startServer(t.app, 'dist/public');
   browser = await chromium.launch();
 });

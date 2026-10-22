@@ -19,6 +19,8 @@ let carId: string;
 before(async () => {
   t = await createTestDatabase();
   A = await seedWorkspace(t.owner);
+  // kasa prowadzona „od zawsze” — testy nie zależą od dnia uruchomienia
+  await t.owner.query("UPDATE kasa_accounts SET data_poczatkowa = '2000-01-01'");
   srv = await startServer(t.app);
   for (const role of Object.keys(A.users)) u[role] = await new ApiClient(srv.base).login(A.users[role].email, A.users[role].password);
   meta = (await u.owner.get('/api/meta')).body;
@@ -162,6 +164,27 @@ describe('Koszty', () => {
     });
     const listA = await u.owner.get('/api/costs?status=all');
     assert.ok(!listA.body.items.some((i: any) => i.carId === carB.body.id));
+  });
+
+  test('data najwyżej tydzień do przodu; stawka VAT: nowa musi obowiązywać, przy edycji zostaje zapisana', async () => {
+    const future = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const r = await u.owner.post('/api/costs', cost({ data: future }));
+    assert.equal(r.status, 400);
+    assert.ok(r.body.error.details.fields.data);
+    const k = await u.owner.post('/api/kasa', { typ: 'wplata', kwota: '1', data: future, opis: 'Wpłata', clientKey: key() });
+    assert.equal(k.status, 400);
+    // koszt ze stawką 23%, potem stawka zmieniona w słowniku i wygaszona
+    const c = (await u.owner.post('/api/costs', cost({ kwota: '100', kwotaTyp: 'netto', vatRateId: vat('23%'), sposobPlatnosci: 'przelew' }))).body;
+    await t.owner.query("UPDATE vat_rates SET rate = 0.25, active = false WHERE id = $1", [vat('23%')]);
+    try {
+      const again = await u.owner.post('/api/costs', cost({ vatRateId: vat('23%') }));
+      assert.equal(again.status, 400, 'nieaktywna stawka nie do wyboru w nowym koszcie');
+      const e = await u.owner.patch(`/api/costs/${c.id}`, { ...cost({ kwota: '200', kwotaTyp: 'netto', vatRateId: vat('23%'), sposobPlatnosci: 'przelew' }), version: c.version });
+      assert.equal(e.status, 200, JSON.stringify(e.body));
+      assert.deepEqual([e.body.kwotaNetto, e.body.kwotaVat, e.body.stawkaVat], ['200.00', '46.00', '0.2300']);
+    } finally {
+      await t.owner.query("UPDATE vat_rates SET rate = 0.23, active = true WHERE id = $1", [vat('23%')]);
+    }
   });
 
   test('uprawnienia: Sprzedawca i Serwis bez Kosztów/Kasy; Księgowość dodaje koszt gotówką bez prawa do kasy', async () => {

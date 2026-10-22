@@ -40,11 +40,14 @@ export async function getMeta(ctx: Ctx): Promise<Meta> {
     `SELECT id, label, rate::text AS rate, active FROM vat_rates
      WHERE valid_from <= CURRENT_DATE AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY sort_order, rate`,
   );
+  // RLS: rola bez kasa.view nie widzi wiersza → null
+  const kasa = await ctx.q.query<{ d: string }>('SELECT data_poczatkowa::text AS d FROM kasa_accounts');
   return {
     statuses,
     countries,
     costCategories,
     vatRates,
+    kasaOd: kasa.rows[0]?.d ?? null,
     fuelTypes: FUEL_TYPES,
     gearboxTypes: GEARBOX_TYPES,
     purchaseTypes: PURCHASE_TYPES,

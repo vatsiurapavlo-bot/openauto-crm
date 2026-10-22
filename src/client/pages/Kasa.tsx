@@ -197,7 +197,7 @@ function KasaOperationModal({ onClose, onSaved }: { onClose: () => void; onSaved
   const [data, setData] = useState(today());
   const [opis, setOpis] = useState('');
   const [carId, setCarId] = useState('');
-  const [clientKey] = useState(newKey);
+  const [keyState, setKeyState] = useState<{ fp: string; key: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -208,16 +208,13 @@ function KasaOperationModal({ onClose, onSaved }: { onClose: () => void; onSaved
     setBusy(true);
     setErrors({});
     setFormError('');
+    const body = { typ, kwota, ...(typ === 'korekta' && kierunek ? { kierunek } : {}), data, opis, carId: carId || null };
+    // ten sam klucz tylko dla tych samych danych (ponowienie po zerwanym połączeniu)
+    const fp = JSON.stringify(body);
+    const clientKey = keyState && keyState.fp === fp ? keyState.key : newKey();
+    setKeyState({ fp, key: clientKey });
     try {
-      const op = await api.post<KasaOperation>('/api/kasa', {
-        typ,
-        kwota,
-        ...(typ === 'korekta' && kierunek ? { kierunek } : {}),
-        data,
-        opis,
-        carId: carId || null,
-        clientKey,
-      });
+      const op = await api.post<KasaOperation>('/api/kasa', { ...body, clientKey });
       toast(`${KASA_TYPES[op.typ]}: ${money(op.kwota)} · saldo ${money(op.saldoPoOperacji)}`);
       onSaved();
     } catch (err) {
@@ -295,6 +292,7 @@ function KasaOperationModal({ onClose, onSaved }: { onClose: () => void; onSaved
 
 function InitialBalance({ view, onSaved }: { view: KasaView; onSaved: () => void }) {
   const toast = useToast();
+  const app = useApp();
   const [saldo, setSaldo] = useState(view.saldoPoczatkowe === '0.00' ? '' : view.saldoPoczatkowe.replace('.', ','));
   const [data, setData] = useState(view.dataPoczatkowa);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -304,6 +302,7 @@ function InitialBalance({ view, onSaved }: { view: KasaView; onSaved: () => void
     try {
       await api.post('/api/kasa/saldo-poczatkowe', { saldo: saldo || '0', data });
       toast('Zapisano saldo początkowe');
+      await app.reloadMeta(); // data rozpoczęcia kasy używana w formularzu kosztu
       onSaved();
     } catch (err) {
       const ae = err as ApiError;
@@ -317,6 +316,7 @@ function InitialBalance({ view, onSaved }: { view: KasaView; onSaved: () => void
       </header>
       <p className="muted small">
         Ile gotówki jest w kasie na start? Można to ustawić tylko przed pierwszą operacją — później różnice poprawia się korektą.
+        Koszty gotówkowe z datą wcześniejszą niż ten dzień nie zmieniają kasy (są już w saldzie początkowym).
       </p>
       <form className="form inline-form" onSubmit={submit}>
         <Field label="Saldo (zł)" error={errors.saldo}>

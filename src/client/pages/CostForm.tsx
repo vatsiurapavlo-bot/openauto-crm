@@ -4,7 +4,7 @@ import { toCents, toDecimalString } from '../../shared/money.ts';
 import { fromGross, fromNet } from '../../shared/vat.ts';
 import { api, ApiError } from '../api.ts';
 import { useApp } from '../state.tsx';
-import { Field, Icon, Modal, money, useLoad, useToast } from '../ui.tsx';
+import { Field, Icon, Modal, date, money, useLoad, useToast } from '../ui.tsx';
 
 /** Wartości formularza — także do wstępnego wypełnienia (np. przez przyszłe wprowadzanie głosowe). */
 export interface CostDraft {
@@ -95,14 +95,20 @@ export function CostFormModal(props: {
     ...(cost ? fromCost(cost) : {}),
     ...props.initial,
   }));
-  const [clientKey] = useState(newKey);
+  // klucz formularza: ten sam przy ponownym wysłaniu tych samych danych (np. po zerwanym połączeniu),
+  // nowy — gdy dane zmieniono (inaczej serwer zwróciłby wcześniej zapisany koszt)
+  const [keyState, setKeyState] = useState<{ fp: string; key: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cars = useLoad(() => api.get<CarList>('/api/cars?view=all&limit=500&sort=numer&dir=desc'), []);
 
-  const rate = rates.find((r) => r.id === v.vatRateId)?.rate ?? '0';
+  // przy edycji z tą samą stawką liczymy stawką zapisaną w koszcie (jak serwer)
+  const keepRate = cost && cost.vatRateId && v.vatRateId === cost.vatRateId ? cost.stawkaVat : null;
+  const rate = keepRate ?? rates.find((r) => r.id === v.vatRateId)?.rate ?? '0';
+  const archivedRate = cost?.vatRateId && !rates.some((r) => r.id === cost.vatRateId) ? cost : null;
+  const beforeKasa = !!app.meta.kasaOd && v.sposobPlatnosci === 'gotowka' && !!v.data && v.data < app.meta.kasaOd;
   const calc = useMemo(() => preview(v.kwota, v.kwotaTyp, rate), [v.kwota, v.kwotaTyp, rate]);
   const vatPositive = !!calc && toCents(calc.vat) > 0n;
   const vatDoOdliczenia = v.vatDoOdliczenia ?? (v.czyFaktura && vatPositive);
@@ -128,11 +134,14 @@ export function CostFormModal(props: {
       vatDoOdliczenia,
       notatka: v.notatka,
     };
+    const fp = JSON.stringify(body);
+    const clientKey = keyState && keyState.fp === fp ? keyState.key : newKey();
+    if (!cost) setKeyState({ fp, key: clientKey });
     try {
       const saved = cost
         ? await api.patch<Cost>(`/api/costs/${cost.id}`, { ...body, version: cost.version })
         : await api.post<Cost>('/api/costs', { ...body, clientKey });
-      const kasaNote = saved.sposobPlatnosci === 'gotowka' && !cost ? ` · kasa ${money(saved.wplywNaKase)}` : '';
+      const kasaNote = !cost && saved.wplywNaKase !== '0.00' ? ` · kasa ${money(saved.wplywNaKase)}` : '';
       toast(cost ? `Zapisano koszt nr ${saved.numer}` : `Dodano koszt nr ${saved.numer}${kasaNote}`);
       onSaved(saved);
     } catch (err) {
@@ -193,6 +202,9 @@ export function CostFormModal(props: {
                     {r.label}
                   </option>
                 ))}
+                {archivedRate && (
+                  <option value={archivedRate.vatRateId!}>{`${(Number(archivedRate.stawkaVat) * 100).toLocaleString('pl-PL')}% (archiwalna)`}</option>
+                )}
               </select>
             </Field>
             <div className="calc-line" aria-live="polite">
@@ -222,7 +234,9 @@ export function CostFormModal(props: {
                 ))}
               </div>
               <span className="field-hint">
-                {v.sposobPlatnosci === 'gotowka'
+                {beforeKasa
+                  ? `Data przed rozpoczęciem kasy (${date(app.meta.kasaOd)}) — ten koszt nie zmieni kasy, bo jest już w saldzie początkowym.`
+                  : v.sposobPlatnosci === 'gotowka'
                   ? calc
                     ? `Gotówka: kasa zmniejszy się automatycznie o ${money(calc.brutto)}.`
                     : 'Gotówka: kwota zostanie automatycznie odjęta z kasy.'

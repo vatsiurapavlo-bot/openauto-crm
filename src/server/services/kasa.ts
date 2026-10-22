@@ -8,7 +8,7 @@ import { carLabel, type KasaOperation, type KasaTyp, type KasaView } from '../..
 import { badRequest, conflict, forbidden } from '../http/core.ts';
 import { type Ctx, can, requirePerm } from './context.ts';
 import { parseOrThrow } from './cars.ts';
-import { isoDate, positiveMoney } from './costs.ts';
+import { entryDate, isoDate, positiveMoney } from './costs.ts';
 
 const dec = (v: string | null) => toDecimalString(toCents(v ?? '0'));
 
@@ -107,7 +107,7 @@ export const kasaOperationSchema = z
     /** Kwota bez znaku; znak wynika z typu, a dla korekty — z pola kierunek */
     kwota: positiveMoney,
     kierunek: z.enum(['plus', 'minus']).optional(),
-    data: isoDate,
+    data: entryDate,
     opis: z.string().trim().min(3, 'Opisz operację (min. 3 znaki)').max(300),
     carId: z.string().uuid().nullish().transform((v) => v ?? null),
     clientKey: z.string().min(8).max(100).regex(/^[\w-]+$/),

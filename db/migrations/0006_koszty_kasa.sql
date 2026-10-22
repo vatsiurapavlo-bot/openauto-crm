@@ -58,11 +58,15 @@ BEGIN
     RAISE EXCEPTION 'Nie znaleziono dokumentu' USING ERRCODE = '23503';
   END IF;
   -- stawka VAT: kopia z chwili wyboru stawki (późniejsza zmiana słownika nie zmienia starych kosztów)
-  IF NEW.vat_rate_id IS NOT NULL AND (TG_OP = 'INSERT' OR NEW.vat_rate_id IS DISTINCT FROM OLD.vat_rate_id) THEN
+  IF NEW.vat_rate_id IS NULL THEN
+    NEW.stawka_vat := 0;
+  ELSIF TG_OP = 'INSERT' OR NEW.vat_rate_id IS DISTINCT FROM OLD.vat_rate_id THEN
     SELECT rate INTO NEW.stawka_vat FROM vat_rates WHERE id = NEW.vat_rate_id AND workspace_id = NEW.workspace_id;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Nieprawidłowa stawka VAT' USING ERRCODE = '23503';
     END IF;
+  ELSE
+    NEW.stawka_vat := OLD.stawka_vat;
   END IF;
   RETURN NEW;
 END $$;
@@ -70,12 +74,15 @@ CREATE TRIGGER costs_before BEFORE INSERT OR UPDATE ON costs
   FOR EACH ROW EXECUTE FUNCTION trg_costs_before();
 
 -- 3. Automatyczne operacje kasowe dla kosztów płatnych gotówką.
---    Docelowy wpływ na kasę: −brutto (gotówka, nieanulowany) albo 0. Zapisujemy RÓŻNICĘ między
---    docelowym wpływem a sumą dotychczasowych operacji tego kosztu — dzięki temu ponowne
---    przetworzenie nigdy nie obciąży kasy drugi raz.
-CREATE FUNCTION app_cost_cash_effect(p_cancelled timestamptz, p_sposob text, p_brutto numeric) RETURNS numeric
+--    Docelowy wpływ na kasę: −brutto (gotówka, nieanulowany, z datą od dnia rozpoczęcia kasy) albo 0.
+--    Koszt sprzed daty salda początkowego jest już zawarty w tym saldzie — nie obciąża kasy drugi raz
+--    (np. przy przenoszeniu historii z Excela).
+--    Zapisujemy RÓŻNICĘ między docelowym wpływem a sumą dotychczasowych operacji tego kosztu — dzięki temu
+--    ponowne przetworzenie nigdy nie obciąży kasy drugi raz.
+CREATE FUNCTION app_cost_cash_effect(p_cancelled timestamptz, p_sposob text, p_brutto numeric, p_data date, p_start date)
+RETURNS numeric
 LANGUAGE sql IMMUTABLE AS $$
-  SELECT CASE WHEN p_cancelled IS NULL AND p_sposob = 'gotowka' THEN -p_brutto ELSE 0 END
+  SELECT CASE WHEN p_cancelled IS NULL AND p_sposob = 'gotowka' AND p_data >= p_start THEN -p_brutto ELSE 0 END
 $$;
 
 CREATE FUNCTION trg_costs_kasa() RETURNS trigger
@@ -85,10 +92,14 @@ DECLARE
   v_has_ops boolean;
   v_delta  numeric;
   v_typ    text;
+  v_start  date;
 BEGIN
+  -- blokada kasy przestrzeni: zapisy kasowe i zmiana salda początkowego wykonują się po kolei
+  SELECT data_poczatkowa INTO v_start FROM kasa_accounts WHERE workspace_id = NEW.workspace_id FOR UPDATE;
   SELECT coalesce(sum(kwota), 0), count(*) > 0 INTO v_booked, v_has_ops
   FROM kasa_operations WHERE cost_id = NEW.id;
-  v_delta := app_cost_cash_effect(NEW.cancelled_at, NEW.sposob_platnosci, NEW.kwota_brutto) - v_booked;
+  v_delta := app_cost_cash_effect(NEW.cancelled_at, NEW.sposob_platnosci, NEW.kwota_brutto, NEW.data,
+                                  coalesce(v_start, DATE '-infinity')) - v_booked;
   IF v_delta = 0 THEN
     RETURN NULL;
   END IF;
@@ -119,11 +130,13 @@ CREATE TRIGGER costs_kasa AFTER INSERT OR UPDATE ON costs
 DROP POLICY kasa_insert ON kasa_operations;
 CREATE POLICY kasa_insert ON kasa_operations FOR INSERT
   WITH CHECK (workspace_id = app_workspace() AND app_has_perm('kasa.edit')
-              AND cost_id IS NULL AND typ IN ('przychod', 'wplata', 'wyplata', 'korekta'));
+              AND cost_id IS NULL AND typ IN ('przychod', 'wplata', 'wyplata', 'korekta')
+              AND idempotency_key LIKE 'manual:%');
 
 CREATE FUNCTION trg_kasa_before_insert() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
+  PERFORM 1 FROM kasa_accounts WHERE workspace_id = NEW.workspace_id FOR UPDATE;
   NEW.created_by := coalesce(app_user(), NEW.created_by);
   NEW.created_at := now();
   IF NEW.car_id IS NOT NULL

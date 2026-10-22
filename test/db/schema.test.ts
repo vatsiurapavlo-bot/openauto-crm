@@ -15,6 +15,8 @@ before(async () => {
   t = await createTestDatabase();
   A = await seedWorkspace(t.owner, 'openauto');
   B = await seedWorkspace(t.owner, 'abauto');
+  // kasa prowadzona „od zawsze” w A — testy nie zależą od dnia uruchomienia
+  await t.owner.query("UPDATE kasa_accounts SET data_poczatkowa = '2000-01-01' WHERE workspace_id = $1", [A.workspaceId]);
 });
 after(async () => t?.drop());
 
@@ -412,7 +414,7 @@ describe('Koszty i Kasa (Etap 3)', () => {
         q.query(
           `INSERT INTO kasa_operations (workspace_id, data, typ, kwota, opis, idempotency_key)
            VALUES ($1, CURRENT_DATE, $2, $3, 'Wpłata do kasy', $4)`,
-          [A.workspaceId, typ, kwota, 'm-' + Math.random()],
+          [A.workspaceId, typ, kwota, 'manual:' + Math.random()],
         ),
       );
     await op('manager', 'wplata', 5000);
@@ -428,7 +430,10 @@ describe('Koszty i Kasa (Etap 3)', () => {
 
   test('saldo po operacji liczone z dziennika; saldo początkowe tylko przed pierwszą operacją', async () => {
     // przestrzeń B: jeszcze bez operacji → saldo początkowe można ustawić
-    await as(B, 'owner', (q) => q.query('UPDATE kasa_accounts SET saldo_poczatkowe = 2000'));
+    await as(B, 'owner', (q) => q.query("UPDATE kasa_accounts SET saldo_poczatkowe = 2000, data_poczatkowa = '2026-01-01'"));
+    // koszt gotówkowy sprzed dnia rozpoczęcia kasy jest już w saldzie początkowym → bez operacji
+    const old = await addCost(B, 'owner', { brutto: '900.00', sposob: 'gotowka', data: '2025-12-20' });
+    assert.equal((await ops(old.id)).length, 0);
     await addCost(B, 'owner', { brutto: '500.00', sposob: 'gotowka', data: '2026-01-10' });
     await addCost(B, 'owner', { brutto: '200.00', sposob: 'gotowka', data: '2026-01-05' }); // wcześniejsza data
     const ledger = await as(B, 'owner', (q) =>
@@ -443,6 +448,35 @@ describe('Koszty i Kasa (Etap 3)', () => {
     );
     assert.equal(await aktualna(B), '1300.00');
     await assert.rejects(as(B, 'owner', (q) => q.query('UPDATE kasa_accounts SET saldo_poczatkowe = 0')), /przed pierwszą operacją/);
+    // przeniesienie daty kosztu na „przed rozpoczęciem kasy” zwraca gotówkę korektą
+    const moved = await addCost(B, 'owner', { brutto: '100.00', sposob: 'gotowka', data: '2026-02-01' });
+    await as(B, 'owner', (q) => q.query("UPDATE costs SET data = '2025-12-31' WHERE id = $1", [moved.id]));
+    assert.deepEqual((await ops(moved.id)).map((o) => [o.typ, o.kwota]), [['wydatek', '-100.00'], ['korekta', '100.00']]);
+  });
+
+  test('ręczna operacja nie może zająć klucza operacji kosztu', async () => {
+    const c = await addCost(A, 'owner', { brutto: '10.00', sposob: 'gotowka' });
+    await assert.rejects(
+      as(A, 'owner', (q) =>
+        q.query(
+          `INSERT INTO kasa_operations (workspace_id, data, typ, kwota, opis, idempotency_key)
+           VALUES ($1, CURRENT_DATE, 'korekta', 1, 'x', $2)`,
+          [A.workspaceId, `cost:${c.id}:v2`],
+        ),
+      ),
+      /row-level security/,
+    );
+  });
+
+  test('stawka VAT kosztu nie zmienia się po zmianie słownika ani bezpośrednim zapisem', async () => {
+    const r23 = await t.owner.query<{ id: string }>("SELECT id FROM vat_rates WHERE workspace_id = $1 AND label = '23%'", [A.workspaceId]);
+    const c = await addCost(A, 'owner', { brutto: '123.00', sposob: 'przelew' });
+    await as(A, 'owner', (q) =>
+      q.query('UPDATE costs SET vat_rate_id = $2, kwota_netto = 100, kwota_vat = 23 WHERE id = $1', [c.id, r23.rows[0].id]),
+    );
+    await as(A, 'owner', (q) => q.query('UPDATE costs SET stawka_vat = 0.5 WHERE id = $1', [c.id]));
+    const s1 = await t.owner.query<{ s: string }>('SELECT stawka_vat::text AS s FROM costs WHERE id = $1', [c.id]);
+    assert.equal(s1.rows[0].s, '0.2300');
   });
 });
 
