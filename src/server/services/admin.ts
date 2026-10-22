@@ -71,6 +71,14 @@ export async function createUser(ctx: Ctx, input: unknown) {
   if (userId) {
     const member = await ctx.q.query('SELECT 1 FROM workspace_members WHERE workspace_id = app_workspace() AND user_id = $1', [userId]);
     if (member.rowCount) throw conflict('Ten użytkownik już ma dostęp do tej przestrzeni');
+    // Konto z tym e-mailem istnieje w innej przestrzeni. Nie dołączamy go po cichu — hasło ustawił ktoś inny,
+    // a e-mail nie musi należeć do osoby, którą chcesz dodać. Dostęp do kolejnej przestrzeni: zaproszenie (Etap 6).
+    throw new HttpError(
+      409,
+      'Konto z tym e-mailem już istnieje w innej przestrzeni roboczej. Podaj inny e-mail albo dodaj tę osobę przez zaproszenie.',
+      'conflict',
+      { fields: { email: 'Konto już istnieje' } },
+    );
   } else {
     const hash = await hashPassword(data.password);
     const ins = await ctx.q.query<{ id: string }>(
@@ -117,6 +125,55 @@ export async function changeOwnPassword(ctx: Ctx, input: unknown) {
   ]);
   await revokeAllUserSessions(ctx.q, ctx.session.userId, ctx.session.sessionId);
   await ctx.q.query('SELECT app_log_auth_event($1, $2, $3, $4)', [ctx.session.workspaceId, ctx.session.userId, 'PASSWORD_CHANGED', {}]);
+}
+
+const changeEmailSchema = z
+  .object({
+    currentPassword: z.string().max(200),
+    newEmail: z.string().trim().toLowerCase().email('Nieprawidłowy e-mail').max(200),
+  })
+  .strict();
+
+/**
+ * Zmiana własnego adresu e-mail (loginu). Wymaga obecnego hasła; ten sam limit prób co zmiana hasła.
+ * Po zmianie pozostałe sesje użytkownika są wylogowane (jak przy zmianie hasła).
+ */
+export async function changeOwnEmail(ctx: Ctx, input: unknown): Promise<{ email: string }> {
+  const data = parseOrThrow(changeEmailSchema, input);
+  const key = ctx.session.userId;
+  if (!passwordChangeLimiter.tryAttempt(key, key)) throw new HttpError(429, 'Zbyt wiele prób. Spróbuj za 15 minut.');
+  const { rows } = await ctx.q.query<{ password_hash: string; email: string }>(
+    'SELECT password_hash, email FROM users WHERE id = $1',
+    [ctx.session.userId],
+  );
+  if (!(await verifyPassword(data.currentPassword, rows[0]?.password_hash ?? null))) {
+    await ctx.q.query('SELECT app_log_auth_event($1, $2, $3, $4)', [
+      ctx.session.workspaceId,
+      ctx.session.userId,
+      'LOGIN_FAILED',
+      { reason: 'zmiana_emaila' },
+    ]);
+    throw badRequest('Obecne hasło jest nieprawidłowe', { fields: { currentPassword: 'Nieprawidłowe hasło' } });
+  }
+  const oldEmail = rows[0].email;
+  // Każda nieudana próba (także „ten sam” / „zajęty”) zużywa limit — nie da się masowo sprawdzać,
+  // które adresy mają konto. Licznik zerujemy dopiero po udanej zmianie.
+  if (data.newEmail === oldEmail) {
+    throw badRequest('To jest Twój obecny e-mail', { fields: { newEmail: 'Taki sam jak obecny' } });
+  }
+  const taken = () =>
+    new HttpError(409, 'Ten e-mail jest już używany przez inne konto', 'conflict', { fields: { newEmail: 'Zajęty' } });
+  if ((await ctx.q.query('SELECT 1 FROM users WHERE email = $1', [data.newEmail])).rowCount) throw taken();
+  try {
+    await ctx.q.query('UPDATE users SET email = $2 WHERE id = $1', [ctx.session.userId, data.newEmail]);
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') throw taken(); // równoczesna zmiana na ten sam adres
+    throw e;
+  }
+  await revokeAllUserSessions(ctx.q, ctx.session.userId, ctx.session.sessionId);
+  await ctx.q.query('SELECT app_log_email_changed($1)', [{ from: oldEmail, to: data.newEmail }]);
+  passwordChangeLimiter.success(key, key);
+  return { email: data.newEmail };
 }
 
 export async function listAudit(ctx: Ctx, opts: { entity?: string; entityId?: string; limit?: number }) {

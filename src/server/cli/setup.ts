@@ -5,6 +5,7 @@
  *   OWNER_EMAIL=... OWNER_NAME="Jan Kowalski" npm run setup
  * Hasło: zmienna OWNER_PASSWORD albo zostaniesz o nie zapytany.
  * Później w ten sam sposób można dodać przestrzeń AB Auto (WORKSPACE_CODE=ab-auto).
+ * Jeśli konto z tym e-mailem już istnieje, podaj jego OBECNE hasło — inaczej setup odmówi.
  */
 import readline from 'node:readline';
 import { createPool } from '../db/index.ts';

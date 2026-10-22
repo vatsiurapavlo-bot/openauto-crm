@@ -66,6 +66,7 @@ function buildRouter(cfg: Config, deps: SystemDeps, appPool: PoolLike) {
     await admin.changeOwnPassword(req.ctx, req.body);
     return { ok: true };
   });
+  r.post('/api/auth/email', async (req) => admin.changeOwnEmail(req.ctx, req.body));
   r.get('/api/meta', async (req) => admin.getMeta(req.ctx));
   r.get('/api/dashboard', async (req) => getDashboard(req.ctx));
 
