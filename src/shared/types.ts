@@ -148,6 +148,10 @@ export interface DashboardData {
 export interface Meta {
   statuses: CarStatus[];
   countries: Country[];
+  costCategories: CostCategory[];
+  vatRates: VatRate[];
+  /** Od tej daty koszty gotówkowe zmieniają kasę (data salda początkowego); null = brak dostępu do kasy */
+  kasaOd: string | null;
   fuelTypes: string[];
   gearboxTypes: string[];
   purchaseTypes: string[];
@@ -159,4 +163,111 @@ export const PURCHASE_TYPES = ['Aukcja', 'Firma', 'Osoba prywatna', 'Leasing', '
 
 export function carLabel(c: { numer: number; marka: string; model: string; rokProdukcji: number | null }) {
   return `${c.numer} — ${c.marka} ${c.model}${c.rokProdukcji ? ' ' + c.rokProdukcji : ''}`;
+}
+
+// ---------------------------------------------------------------------------
+// Etap 3: Koszty i Kasa
+// ---------------------------------------------------------------------------
+
+export type PaymentMethod = 'gotowka' | 'przelew' | 'karta' | 'inne';
+export const PAYMENT_METHODS: Record<PaymentMethod, string> = {
+  gotowka: 'Gotówka',
+  przelew: 'Przelew',
+  karta: 'Karta',
+  inne: 'Inne',
+};
+
+export interface CostCategory {
+  id: string;
+  systemCode: string | null;
+  name: string;
+  active: boolean;
+}
+
+export interface VatRate {
+  id: string;
+  label: string;
+  /** "0.2300" */
+  rate: string;
+  active: boolean;
+}
+
+export interface CarRef {
+  id: string;
+  numer: number;
+  label: string;
+}
+
+export interface Cost {
+  id: string;
+  numer: number;
+  data: string;
+  opis: string;
+  categoryId: string;
+  categoryName: string;
+  vatRateId: string | null;
+  stawkaVat: string;
+  kwotaNetto: string;
+  kwotaVat: string;
+  kwotaBrutto: string;
+  vatDoOdliczenia: boolean;
+  sposobPlatnosci: PaymentMethod;
+  czyFaktura: boolean;
+  numerFaktury: string | null;
+  notatka: string | null;
+  /** null = koszt ogólny firmy (albo auto niewidoczne dla tej roli) */
+  car: CarRef | null;
+  carId: string | null;
+  version: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt: string | null;
+  /** Suma operacji kasowych tego kosztu (np. "-1500.00"); "0.00" przy przelewie */
+  wplywNaKase: string;
+}
+
+export interface CostList {
+  items: Cost[];
+  total: number;
+  sum: { netto: string; vat: string; brutto: string; gotowka: string };
+}
+
+export type KasaTyp = 'przychod' | 'wydatek' | 'korekta' | 'wplata' | 'wyplata';
+export const KASA_TYPES: Record<KasaTyp, string> = {
+  wplata: 'Wpłata',
+  wyplata: 'Wypłata',
+  przychod: 'Przychód',
+  wydatek: 'Wydatek',
+  korekta: 'Korekta',
+};
+/** Typy, które można dodać ręcznie (wydatek gotówkowy — tylko przez Koszty) */
+export const KASA_MANUAL_TYPES: KasaTyp[] = ['wplata', 'wyplata', 'przychod', 'korekta'];
+
+export interface KasaOperation {
+  id: string;
+  numer: number;
+  data: string;
+  typ: KasaTyp;
+  kwota: string;
+  opis: string;
+  car: CarRef | null;
+  costId: string | null;
+  costNumer: number | null;
+  saldoPoOperacji: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface KasaView {
+  saldoPoczatkowe: string;
+  dataPoczatkowa: string;
+  aktualna: string;
+  /** Saldo początkowe można zmienić tylko przed pierwszą operacją */
+  canSetInitial: boolean;
+  items: KasaOperation[];
+  total: number;
+  /** Sumy w wybranym okresie */
+  wplywy: string;
+  wyplywy: string;
 }

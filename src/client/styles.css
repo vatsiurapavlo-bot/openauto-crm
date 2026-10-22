@@ -1680,3 +1680,209 @@ textarea {
     font-size: 13px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Etap 3: Koszty i Kasa
+   --------------------------------------------------------------------------- */
+.money-row.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 16px;
+}
+.mobile-list {
+  display: none;
+}
+.row-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.row-cards li + li {
+  border-top: 1px solid var(--line);
+}
+.row-cards li > button,
+.row-cards li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+}
+.row-cards li > button {
+  cursor: pointer;
+}
+.row-cards li > button:active {
+  background: var(--surface-2);
+}
+.rc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.rc-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rc-sub {
+  display: block;
+}
+.row-cards li.cancelled,
+.table tr.cancelled td {
+  opacity: 0.55;
+}
+.table tr.cancelled strong {
+  text-decoration: line-through;
+}
+.pay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pay-badge.cash {
+  border-color: color-mix(in srgb, var(--pos) 45%, var(--line));
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 8%, var(--surface));
+}
+.kasa-typ {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.kasa-typ.t-wydatek,
+.kasa-typ.t-wyplata {
+  color: var(--neg);
+}
+.kasa-typ.t-wplata,
+.kasa-typ.t-przychod {
+  color: var(--pos);
+}
+.kasa-typ.t-korekta {
+  color: var(--focus);
+}
+.amount-row {
+  display: flex;
+  gap: 8px;
+}
+.amount-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.amount-row .seg button,
+.field .seg button {
+  width: auto;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+}
+.calc-line {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  font-size: 14px;
+}
+.pay-chips {
+  margin: 2px 0 0;
+}
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.check-field input {
+  width: 18px;
+  height: 18px;
+}
+.form-actions-left {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn.danger {
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 40%, var(--line));
+}
+.date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.date-range input {
+  height: 38px;
+}
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.inline-form .field {
+  min-width: 160px;
+}
+.hint-panel {
+  margin-bottom: 16px;
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line));
+}
+.cost-total {
+  margin: 10px 0 0;
+  text-align: right;
+}
+.cost-form fieldset:disabled {
+  opacity: 0.85;
+}
+
+@media (max-width: 900px) {
+  .money-row.four {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .desktop-only {
+    display: none;
+  }
+  .mobile-list {
+    display: block;
+  }
+  .date-range {
+    width: 100%;
+  }
+  .date-range input {
+    flex: 1;
+    min-width: 0;
+  }
+  .form-actions-left {
+    width: 100%;
+  }
+}

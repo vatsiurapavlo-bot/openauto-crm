@@ -28,6 +28,8 @@ import {
 import { type Ctx, loadPermissions } from './services/context.ts';
 import * as cars from './services/cars.ts';
 import * as admin from './services/admin.ts';
+import * as costs from './services/costs.ts';
+import * as kasa from './services/kasa.ts';
 import { getDashboard } from './services/dashboard.ts';
 import * as system from './services/system.ts';
 import type { SystemDeps } from './services/system.ts';
@@ -101,6 +103,39 @@ function buildRouter(cfg: Config, deps: SystemDeps, appPool: PoolLike) {
     return { ok: true };
   });
   r.get('/api/cars/:id/history', async (req) => cars.carHistory(req.ctx, req.params.id));
+
+  const qNum = (v: string | null) => (v && /^\d{1,7}$/.test(v) ? Number(v) : undefined);
+  r.get('/api/costs', async (req) => {
+    const q = req.query;
+    const status = q.get('status');
+    return costs.listCosts(req.ctx, {
+      od: q.get('od') ?? undefined,
+      do: q.get('do') ?? undefined,
+      carId: q.get('car') ?? undefined,
+      zakres: q.get('zakres') === 'firma' ? 'firma' : undefined,
+      categoryId: q.get('kategoria') ?? undefined,
+      sposob: q.get('sposob') ?? undefined,
+      q: q.get('q') ?? undefined,
+      status: status === 'cancelled' || status === 'all' ? status : 'active',
+      limit: qNum(q.get('limit')),
+      offset: qNum(q.get('offset')),
+    });
+  });
+  r.post('/api/costs', async (req) => costs.createCost(req.ctx, req.body));
+  r.get('/api/costs/:id', async (req) => costs.getCost(req.ctx, req.params.id));
+  r.patch('/api/costs/:id', async (req) => costs.updateCost(req.ctx, req.params.id, req.body));
+  r.post('/api/costs/:id/cancel', async (req) => costs.cancelCost(req.ctx, req.params.id, req.body));
+
+  r.get('/api/kasa', async (req) =>
+    kasa.getKasa(req.ctx, {
+      od: req.query.get('od') ?? undefined,
+      do: req.query.get('do') ?? undefined,
+      limit: qNum(req.query.get('limit')),
+      offset: qNum(req.query.get('offset')),
+    }),
+  );
+  r.post('/api/kasa', async (req) => kasa.addKasaOperation(req.ctx, req.body));
+  r.post('/api/kasa/saldo-poczatkowe', async (req) => kasa.setInitialBalance(req.ctx, req.body));
 
   r.get('/api/users', async (req) => admin.listUsers(req.ctx));
   r.post('/api/users', async (req) => admin.createUser(req.ctx, req.body));

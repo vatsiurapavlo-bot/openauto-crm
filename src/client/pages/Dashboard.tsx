@@ -109,11 +109,13 @@ export function DashboardPage() {
               <section className="panel">
                 <header className="panel-head">
                   <h2>Ostatnie operacje kasowe</h2>
-                  <span className="nav-stage">Kasa — Etap 3</span>
+                  <Link to="/kasa" className="link small">
+                    Cała kasa →
+                  </Link>
                 </header>
                 {data.kasa.ostatnieOperacje.length === 0 ? (
                   <Empty icon="wallet" title="Brak operacji kasowych">
-                    Operacje pojawią się po uruchomieniu modułów Koszty i Kasa.
+                    Koszt opłacony gotówką pojawi się tu automatycznie.
                   </Empty>
                 ) : (
                   <table className="table compact">

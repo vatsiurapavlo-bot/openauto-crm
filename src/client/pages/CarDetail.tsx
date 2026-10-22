@@ -5,6 +5,7 @@ import { Link, navigate } from '../router.tsx';
 import { useApp } from '../state.tsx';
 import { CarNumber, CarThumb, ErrorBox, Icon, Money, Spinner, StatusBadge, date, dateTime, money, num, useLoad, useToast, cssVar } from '../ui.tsx';
 import { CarFormModal } from './CarForm.tsx';
+import { CarCostsPanel } from './Costs.tsx';
 
 const KIND_LABEL: Record<StatusKind, string> = {
   logistic: 'Status logistyczny',
@@ -180,6 +181,8 @@ export function CarDetailPage({ id }: { id: string }) {
             <p className="footnote">Prognoza przed podatkami: cena ofertowa − wartość auta − koszty.</p>
           </section>
         )}
+
+        {app.can('costs.view') && <CarCostsPanel carId={car.id} onChanged={reload} />}
 
         <section className="panel">
           <header className="panel-head">
