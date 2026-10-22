@@ -33,7 +33,22 @@ export async function getMeta(ctx: Ctx): Promise<Meta> {
   const { rows: countries } = await ctx.q.query(
     `SELECT trim(code) AS code, name, currency, active FROM countries ORDER BY sort_order, name`,
   );
-  return { statuses, countries, fuelTypes: FUEL_TYPES, gearboxTypes: GEARBOX_TYPES, purchaseTypes: PURCHASE_TYPES };
+  const { rows: costCategories } = await ctx.q.query(
+    `SELECT id, system_code AS "systemCode", name, active FROM cost_categories ORDER BY sort_order, name`,
+  );
+  const { rows: vatRates } = await ctx.q.query(
+    `SELECT id, label, rate::text AS rate, active FROM vat_rates
+     WHERE valid_from <= CURRENT_DATE AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY sort_order, rate`,
+  );
+  return {
+    statuses,
+    countries,
+    costCategories,
+    vatRates,
+    fuelTypes: FUEL_TYPES,
+    gearboxTypes: GEARBOX_TYPES,
+    purchaseTypes: PURCHASE_TYPES,
+  };
 }
 
 export async function listUsers(ctx: Ctx) {

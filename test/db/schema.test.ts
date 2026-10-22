@@ -260,52 +260,189 @@ describe('Historia statusów i audyt', () => {
   });
 });
 
-describe('Kasa (fundament pod Etap 3)', () => {
-  test('dziennik tylko do dopisywania; jeden koszt w danej wersji = najwyżej jedna operacja', async () => {
-    const ws = A.workspaceId;
-    const cost = await as(A, 'owner', async (q) => {
-      const cat = await q.query<{ id: string }>("SELECT id FROM cost_categories WHERE system_code = 'transport'");
-      return (
-        await q.query<{ id: string }>(
-          `INSERT INTO costs (workspace_id, data, opis, category_id, kwota_netto, kwota_vat, kwota_brutto, sposob_platnosci)
-           VALUES ($1, CURRENT_DATE, 'Dostawa', $2, 1500, 0, 1500, 'gotowka') RETURNING id`,
-          [ws, cat.rows[0].id],
+describe('Koszty i Kasa (Etap 3)', () => {
+  const cat = (s: Seeded, code: string) =>
+    t.owner.query<{ id: string }>('SELECT id FROM cost_categories WHERE workspace_id = $1 AND system_code = $2', [s.workspaceId, code])
+      .then((r) => r.rows[0].id);
+  async function addCost(s: Seeded, role: string, v: { brutto: string; sposob: string; car?: string; opis?: string; data?: string }) {
+    const c = await cat(s, 'transport');
+    return as(s, role, async (q) =>
+      (
+        await q.query<{ id: string; numer: string; version: number }>(
+          `INSERT INTO costs (workspace_id, data, opis, category_id, kwota_netto, kwota_vat, kwota_brutto, sposob_platnosci, car_id)
+           VALUES ($1, coalesce($6::date, CURRENT_DATE), $2, $3, $4, 0, $4, $5, $7) RETURNING id, numer, version`,
+          [s.workspaceId, v.opis ?? 'Dostawa', c, v.brutto, v.sposob, v.data ?? null, v.car ?? null],
         )
-      ).rows[0].id;
-    });
-    const op = (key: string) =>
+      ).rows[0],
+    );
+  }
+  const ops = (costId: string) =>
+    t.owner
+      .query<{ typ: string; kwota: string; cost_version: number; created_by: string }>(
+        'SELECT typ, kwota, cost_version, created_by FROM kasa_operations WHERE cost_id = $1 ORDER BY numer',
+        [costId],
+      )
+      .then((r) => r.rows);
+  const aktualna = (s: Seeded) =>
+    t.owner
+      .query<{ s: string }>(
+        `SELECT a.saldo_poczatkowe + coalesce((SELECT sum(kwota) FROM kasa_operations o WHERE o.workspace_id = a.workspace_id AND o.potwierdzona), 0) AS s
+         FROM kasa_accounts a WHERE a.workspace_id = $1`,
+        [s.workspaceId],
+      )
+      .then((r) => r.rows[0].s);
+
+  test('koszt gotówką → automatyczny wydatek w kasie; przelew → kasa bez zmian', async () => {
+    const car = await insertCar(A, 'owner', 'Audi', 'A4');
+    const before = Number(await aktualna(A));
+    const g = await addCost(A, 'manager', { brutto: '1500.00', sposob: 'gotowka', car: car.id, opis: 'Dostawa' });
+    const p = await addCost(A, 'manager', { brutto: '800.00', sposob: 'przelew', car: car.id });
+    assert.deepEqual(
+      (await ops(g.id)).map((o) => [o.typ, o.kwota, o.cost_version, o.created_by]),
+      [['wydatek', '-1500.00', 1, A.users.manager.id]],
+    );
+    assert.equal((await ops(p.id)).length, 0);
+    assert.equal(Number(await aktualna(A)), before - 1500);
+    const op = await t.owner.query<{ opis: string; car_id: string }>('SELECT opis, car_id FROM kasa_operations WHERE cost_id = $1', [g.id]);
+    assert.equal(op.rows[0].car_id, car.id);
+    assert.match(op.rows[0].opis, new RegExp(`Koszt nr ${g.numer}: Dostawa`));
+  });
+
+  test('edycja i anulowanie: korekty różnicy, bez podwójnego obciążenia, saldo zgodne', async () => {
+    const before = Number(await aktualna(A));
+    const c = await addCost(A, 'owner', { brutto: '1000.00', sposob: 'gotowka' });
+    const upd = (sql: string) => as(A, 'owner', (q) => q.query(`UPDATE costs SET ${sql} WHERE id = $1`, [c.id]));
+    await upd("opis = 'Dostawa z Niemiec'"); // bez zmiany kwoty → brak operacji
+    assert.equal((await ops(c.id)).length, 1);
+    await upd('kwota_netto = 1200, kwota_brutto = 1200'); // −200
+    await upd("sposob_platnosci = 'przelew'"); // +1200 (zwrot do kasy)
+    await upd("sposob_platnosci = 'gotowka'"); // −1200
+    await upd('cancelled_at = now()'); // +1200
+    const list = await ops(c.id);
+    assert.deepEqual(
+      list.map((o) => [o.typ, o.kwota, o.cost_version]),
+      [
+        ['wydatek', '-1000.00', 1],
+        ['korekta', '-200.00', 3],
+        ['korekta', '1200.00', 4],
+        ['korekta', '-1200.00', 5],
+        ['korekta', '1200.00', 6],
+      ],
+    );
+    assert.equal(list.reduce((a, o) => a + Number(o.kwota), 0), 0, 'anulowany koszt nie obciąża kasy');
+    assert.equal(Number(await aktualna(A)), before);
+    // anulowany koszt jest zamknięty
+    await assert.rejects(upd("opis = 'x'"), /Anulowanego kosztu/);
+  });
+
+  test('ponowny zapis tej samej wersji nie tworzy drugiej operacji (idempotencja)', async () => {
+    const c = await addCost(A, 'owner', { brutto: '300.00', sposob: 'gotowka' });
+    // symulacja „synchronizacji”: koszt zapisany ponownie bez zmian kwoty
+    await as(A, 'owner', (q) => q.query('UPDATE costs SET kwota_brutto = kwota_brutto WHERE id = $1', [c.id]));
+    await as(A, 'owner', (q) => q.query('UPDATE costs SET kwota_brutto = kwota_brutto WHERE id = $1', [c.id]));
+    assert.deepEqual((await ops(c.id)).map((o) => o.kwota), ['-300.00']);
+    // ręczne dopisanie operacji „udającej” koszt jest zablokowane
+    await assert.rejects(
       as(A, 'owner', (q) =>
         q.query(
           `INSERT INTO kasa_operations (workspace_id, data, typ, kwota, opis, cost_id, cost_version, idempotency_key)
-           VALUES ($1, CURRENT_DATE, 'wydatek', -1500, 'Dostawa', $2, 1, $3)`,
-          [ws, cost, key],
+           VALUES ($1, CURRENT_DATE, 'wydatek', -300, 'x', $2, 9, 'reczny')`,
+          [A.workspaceId, c.id],
+        ),
+      ),
+      /row-level security/,
+    );
+  });
+
+  test('numer, wersja i autor kosztu nadaje baza; pola systemowe niezmienne', async () => {
+    const c = await addCost(A, 'ksiegowosc', { brutto: '50.00', sposob: 'karta' });
+    const row = await t.owner.query<{ version: number; created_by: string }>('SELECT version, created_by FROM costs WHERE id = $1', [c.id]);
+    assert.equal(row.rows[0].version, 1);
+    assert.equal(row.rows[0].created_by, A.users.ksiegowosc.id);
+    await assert.rejects(as(A, 'owner', (q) => q.query('UPDATE costs SET numer = 999 WHERE id = $1', [c.id])), /nie można zmieniać/);
+    await assert.rejects(
+      as(A, 'owner', (q) => q.query('UPDATE costs SET created_by = $2 WHERE id = $1', [c.id, A.users.owner.id])),
+      /nie można zmieniać/,
+    );
+    await as(A, 'owner', (q) => q.query("UPDATE costs SET opis = 'Paliwo' WHERE id = $1", [c.id]));
+    const v = await t.owner.query<{ version: number }>('SELECT version FROM costs WHERE id = $1', [c.id]);
+    assert.equal(v.rows[0].version, 2);
+  });
+
+  test('koszt nie może wskazywać auta, kategorii ani stawki VAT z innej przestrzeni', async () => {
+    const carB = await insertCar(B, 'owner', 'Skoda', 'Octavia');
+    await assert.rejects(addCost(A, 'owner', { brutto: '10.00', sposob: 'przelew', car: carB.id }), /Nie znaleziono samochodu/);
+    const catB = await cat(B, 'inne');
+    await assert.rejects(
+      as(A, 'owner', (q) =>
+        q.query(
+          `INSERT INTO costs (workspace_id, data, opis, category_id, kwota_netto, kwota_vat, kwota_brutto, sposob_platnosci)
+           VALUES ($1, CURRENT_DATE, 'x', $2, 10, 0, 10, 'przelew')`,
+          [A.workspaceId, catB],
+        ),
+      ),
+      /kategoria/,
+    );
+    const vatB = await t.owner.query<{ id: string }>('SELECT id FROM vat_rates WHERE workspace_id = $1 LIMIT 1', [B.workspaceId]);
+    const c = await addCost(A, 'owner', { brutto: '10.00', sposob: 'przelew' });
+    await assert.rejects(
+      as(A, 'owner', (q) => q.query('UPDATE costs SET vat_rate_id = $2 WHERE id = $1', [c.id, vatB.rows[0].id])),
+      /stawka VAT/,
+    );
+  });
+
+  test('kwoty: brutto = netto + VAT, brutto dodatnie', async () => {
+    const c = await cat(A, 'inne');
+    const ins = (n: number, v: number, b: number) =>
+      as(A, 'owner', (q) =>
+        q.query(
+          `INSERT INTO costs (workspace_id, data, opis, category_id, kwota_netto, kwota_vat, kwota_brutto, sposob_platnosci)
+           VALUES ($1, CURRENT_DATE, 'x', $2, $3, $4, $5, 'przelew')`,
+          [A.workspaceId, c, n, v, b],
         ),
       );
-    await op('cost:' + cost + ':v1');
-    await assert.rejects(op('cost:' + cost + ':v1'), /duplicate key/); // ten sam klucz idempotencji
-    await assert.rejects(op('inny-klucz'), /duplicate key/); // ta sama wersja kosztu
-    // rola aplikacji nie ma polityki UPDATE na kasie → 0 zmienionych wierszy
-    const upd = await as(A, 'owner', (q) => q.query('UPDATE kasa_operations SET kwota = -1 WHERE cost_id = $1', [cost]));
+    await assert.rejects(ins(100, 23, 124), /check constraint/);
+    await assert.rejects(ins(-100, 0, -100), /check constraint/);
+    await assert.rejects(ins(0, 0, 0), /check constraint/);
+  });
+
+  test('ręczne operacje: tylko z kasa.edit, bez „wydatku”; dziennik niezmienny', async () => {
+    const op = (role: string, typ: string, kwota: number) =>
+      as(A, role, (q) =>
+        q.query(
+          `INSERT INTO kasa_operations (workspace_id, data, typ, kwota, opis, idempotency_key)
+           VALUES ($1, CURRENT_DATE, $2, $3, 'Wpłata do kasy', $4)`,
+          [A.workspaceId, typ, kwota, 'm-' + Math.random()],
+        ),
+      );
+    await op('manager', 'wplata', 5000);
+    await assert.rejects(op('ksiegowosc', 'wplata', 100), /row-level security/); // costs.edit, ale bez kasa.edit
+    await assert.rejects(op('owner', 'wydatek', -100), /row-level security/);
+    await assert.rejects(op('owner', 'wplata', -100), /check constraint/);
+    const last = await t.owner.query<{ id: string }>("SELECT id FROM kasa_operations WHERE typ = 'wplata' ORDER BY numer DESC LIMIT 1");
+    const upd = await as(A, 'owner', (q) => q.query('UPDATE kasa_operations SET kwota = 1 WHERE id = $1', [last.rows[0].id]));
     assert.equal(upd.rowCount, 0);
-    // nawet właściciel schematu nie zmieni operacji — blokuje trigger
-    await assert.rejects(t.owner.query('UPDATE kasa_operations SET kwota = -1 WHERE cost_id = $1', [cost]), /nie można zmieniać/);
-    await assert.rejects(t.owner.query('DELETE FROM kasa_operations WHERE cost_id = $1', [cost]), /nie można zmieniać/);
-    // brutto musi = netto + VAT
-    await assert.rejects(
-      as(A, 'owner', async (q) => {
-        const cat = await q.query<{ id: string }>("SELECT id FROM cost_categories WHERE system_code = 'inne'");
-        await q.query(
-          `INSERT INTO costs (workspace_id, data, opis, category_id, kwota_netto, kwota_vat, kwota_brutto, sposob_platnosci)
-           VALUES ($1, CURRENT_DATE, 'x', $2, 100, 23, 124, 'przelew')`,
-          [ws, cat.rows[0].id],
-        );
-      }),
-      /check constraint/,
+    await assert.rejects(t.owner.query('UPDATE kasa_operations SET kwota = 1 WHERE id = $1', [last.rows[0].id]), /nie można zmieniać/);
+    await assert.rejects(t.owner.query('DELETE FROM kasa_operations WHERE id = $1', [last.rows[0].id]), /nie można zmieniać/);
+  });
+
+  test('saldo po operacji liczone z dziennika; saldo początkowe tylko przed pierwszą operacją', async () => {
+    // przestrzeń B: jeszcze bez operacji → saldo początkowe można ustawić
+    await as(B, 'owner', (q) => q.query('UPDATE kasa_accounts SET saldo_poczatkowe = 2000'));
+    await addCost(B, 'owner', { brutto: '500.00', sposob: 'gotowka', data: '2026-01-10' });
+    await addCost(B, 'owner', { brutto: '200.00', sposob: 'gotowka', data: '2026-01-05' }); // wcześniejsza data
+    const ledger = await as(B, 'owner', (q) =>
+      q.query<{ kwota: string; saldo_po_operacji: string }>('SELECT kwota, saldo_po_operacji FROM kasa_ledger ORDER BY data, numer'),
     );
-    const saldo = await as(A, 'owner', (q) =>
-      q.query<{ saldo_po_operacji: string }>('SELECT saldo_po_operacji FROM kasa_ledger ORDER BY numer DESC LIMIT 1'),
+    assert.deepEqual(
+      ledger.rows.map((r) => [r.kwota, r.saldo_po_operacji]),
+      [
+        ['-200.00', '1800.00'],
+        ['-500.00', '1300.00'],
+      ],
     );
-    assert.equal(saldo.rows[0].saldo_po_operacji, '-1500.00');
+    assert.equal(await aktualna(B), '1300.00');
+    await assert.rejects(as(B, 'owner', (q) => q.query('UPDATE kasa_accounts SET saldo_poczatkowe = 0')), /przed pierwszą operacją/);
   });
 });
 

@@ -10,6 +10,8 @@ import { CarsPage, type CarsPreset } from './pages/Cars.tsx';
 import { CarDetailPage } from './pages/CarDetail.tsx';
 import { UsersPage } from './pages/Users.tsx';
 import { SettingsPage, ForcedPasswordPage } from './pages/Settings.tsx';
+import { CostsPage } from './pages/Costs.tsx';
+import { KasaPage } from './pages/Kasa.tsx';
 import { PlaceholderPage } from './pages/Placeholder.tsx';
 
 interface NavItem {
@@ -29,8 +31,8 @@ export const NAV: NavItem[] = [
   { path: '/serwis', label: 'Serwis', icon: 'wrench', perm: 'cars.view', preset: { title: 'Serwis', status: 'serwis' } },
   { path: '/lakiernia', label: 'Lakiernia', icon: 'spray', perm: 'cars.view', preset: { title: 'Lakiernia', status: 'lakiernia' } },
   { path: '/rozliczone', label: 'Rozliczone', icon: 'check', perm: 'cars.view', preset: { title: 'Rozliczone', view: 'rozliczone' } },
-  { path: '/koszty', label: 'Koszty', icon: 'receipt', perm: 'costs.view', stage: { n: 3, text: 'Koszty z VAT (netto/brutto), przypisanie do auta lub firmy, automatyczny wydatek w Kasie przy płatności gotówką.' } },
-  { path: '/kasa', label: 'Kasa', icon: 'wallet', perm: 'kasa.view', stage: { n: 3, text: 'Dziennik kasowy z saldem po operacji, korektami zamiast nadpisywania i ochroną przed podwójnym obciążeniem.' } },
+  { path: '/koszty', label: 'Koszty', icon: 'receipt', perm: 'costs.view' },
+  { path: '/kasa', label: 'Kasa', icon: 'wallet', perm: 'kasa.view' },
   { path: '/finanse', label: 'Finanse', icon: 'chart', perm: 'finance.view', stage: { n: 4, text: 'VAT-marża, VAT należny i naliczony w okresie, PIT, składka zdrowotna, zysk księgowy i ekonomiczny — reguły do weryfikacji przez księgowego.' } },
   { path: '/raporty', label: 'Raporty', icon: 'report', perm: 'reports.view', stage: { n: 4, text: 'Raporty sprzedaży, kosztów i zysku za okres oraz eksport do Excela.' } },
   { path: '/dokumenty', label: 'Dokumenty', icon: 'file', perm: 'documents.view', stage: { n: 4, text: 'Faktury VAT i VAT-marża, faktury kosztowe, umowy, korekty, kontrahenci i eksport PDF.' } },
@@ -68,6 +70,8 @@ function Shell() {
   } else if (current?.path === '/') page = <DashboardPage />;
   else if (current?.preset) page = <CarsPage key={current.path} preset={current.preset} />;
   else if (current?.stage) page = <PlaceholderPage title={current.label} icon={current.icon} stage={current.stage} />;
+  else if (current?.path === '/koszty') page = <CostsPage />;
+  else if (current?.path === '/kasa') page = <KasaPage />;
   else if (current?.path === '/uzytkownicy') page = <UsersPage />;
   else if (current?.path === '/ustawienia') page = <SettingsPage />;
   else page = <PlaceholderPage title="Nie znaleziono" icon="alert" />;
